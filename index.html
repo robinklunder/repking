@@ -92,6 +92,10 @@ html,body{height:100%}
 /* Geen -webkit-overflow-scrolling:touch: op iOS is dat sinds jaren standaard, en in
    combinatie met een vaste schil maakt het elementen soms onaanraakbaar. */
 main{flex:1;min-height:0;overflow-y:auto;padding:0 16px 24px;display:flex;flex-direction:column;gap:14px}
+/* Kinderen van een scrollende flex-kolom mogen NIET krimpen. Zonder deze regel
+   drukt de browser lange lijsten plat tot een streepje zodra de inhoud niet
+   past — en met overflow:hidden erop verdwijnt de inhoud dan helemaal. */
+main > *{flex:0 0 auto}
 
 /* Kaarten */
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-1)}
@@ -452,7 +456,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 14:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 15:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
