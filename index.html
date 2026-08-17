@@ -1444,6 +1444,7 @@ const ExPicker={
    ============================================================================ */
 const Log={
   render(V){
+    this.bewerk=false;                       // bewerkstand niet meeslepen naar de lijst
     const ss=allSessions();
     head("Logboek", ss.length?`${ss.length} trainingen · sinds ${dShort(ss[ss.length-1].date)}`:"");
     if(!ss.length){
@@ -1485,8 +1486,12 @@ const Log={
     const s=DB.d.sessions.find(x=>x.id===id);
     if(!s){ go("log"); return; }
     const st=sessionStats(s);
+    const b=this.bewerk;
     head(esc(s.name||"Training"),dLong(s.date),
-      `<button class="btn sm ghost" type="button" onclick="go('log')">Terug</button>`);
+      `<div style="display:flex;gap:6px">
+         <button class="btn sm ghost" type="button" onclick="go('log')">Terug</button>
+         <button class="btn sm ${b?"primary":""}" type="button" onclick="Log.togBewerk()">${b?"Klaar":"Bewerk"}</button>
+       </div>`);
     V.innerHTML=`
       <div class="tiles">
         <div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>
@@ -1502,28 +1507,124 @@ const Log={
       </div>`:""}
       ${Inspanning.kaart(s)}
       ${s.notes?`<div class="card card-pad"><p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${esc(s.notes)}</p></div>`:""}
-      ${s.entries.map(e=>{
+      ${s.entries.map((e,i)=>{
         const ex=exById(e.exId)||{name:"?",groep:"?"};
         return `<div class="ex">
           <div class="ex-head"><div class="ex-name"><b>${esc(ex.name)}</b>
             <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
-            <button class="ex-more" type="button" onclick="go('oefening','${e.exId}')" aria-label="Voortgang">→</button></div>
+            <button class="ex-more" type="button" onclick="${b?`Log.exMenu('${s.id}',${i})`:`go('oefening','${e.exId}')`}"
+              aria-label="${b?"Opties":"Voortgang"}">${b?"⋯":"→"}</button></div>
           <div class="setgrid head"><span>Set</span><span>Kg</span><span>Reps</span><span></span></div>
           ${e.sets.map((x,j)=>{
             const nr=e.sets.slice(0,j+1).filter(y=>y.t!=="warmup").length;
+            const kleur=x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":"";
+            const label=x.t==="warmup"?"W":x.t==="drop"?"D":x.t==="fail"?"F":nr;
             return `<div class="setgrid setrow">
-              <span class="setno ${x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":""}">${x.t==="warmup"?"W":x.t==="drop"?"D":x.t==="fail"?"F":nr}</span>
-              <span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>
-              <span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>
+              ${b?`<button class="setno ${kleur}" type="button" onclick="Log.setMenu('${s.id}',${i},${j})">${label}</button>`
+                 :`<span class="setno ${kleur}">${label}</span>`}
+              ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
+                     onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
+                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>`}
+              ${b?`<input class="inp num" inputmode="numeric" value="${x.r??""}" aria-label="Herhalingen"
+                     onchange="Log.zet('${s.id}',${i},${j},'r',this.value)">`
+                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>`}
               <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
+          ${b?`<div class="ex-foot">
+                 <button class="btn sm wide" type="button" onclick="Log.addSet('${s.id}',${i})">+ Set</button>
+                 <button class="btn sm ghost" type="button" onclick="Log.addSet('${s.id}',${i},'warmup')">+ Opwarm</button>
+               </div>`:""}
         </div>`;
       }).join("")}
-      <div class="row">
+      ${b?`
+        <button class="btn wide" type="button" onclick="Log.addEx('${s.id}')">+ Oefening toevoegen</button>
+        <button class="btn ghost wide" type="button" onclick="Log.meta('${s.id}')">Naam, datum en notitie</button>
+        <button class="btn danger wide" type="button" onclick="Log.del('${s.id}')">Training verwijderen</button>`
+      :`<div class="row">
         <button class="btn ghost wide" type="button" onclick="Train.repeat('${s.id}');go('train')">Herhalen</button>
         <button class="btn danger wide" type="button" onclick="Log.del('${s.id}')">Verwijderen</button>
-      </div>`;
+      </div>`}`;
+  },
+
+  /* ---- Bewerken van een opgeslagen training -------------------------------
+     Alles schrijft rechtstreeks in de bewaarde training. Bewust géén render()
+     na het typen van een getal: dat zou de focus uit het veld gooien terwijl
+     je nog van gewicht naar herhalingen springt.                            */
+  bewerk:false,
+  togBewerk(){ this.bewerk=!this.bewerk; render(); },
+  vind(id){ return DB.d.sessions.find(x=>x.id===id); },
+
+  zet(id,i,j,veld,waarde){
+    const s=this.vind(id); if(!s) return;
+    const set=s.entries[i].sets[j];
+    const v=String(waarde).replace(",",".").trim();
+    set[veld]= v==="" ? null : (veld==="r" ? (parseInt(v,10)||null) : (parseFloat(v)||null));
+    DB.save();
+  },
+  setMenu(id,i,j){
+    const set=this.vind(id).entries[i].sets[j];
+    const opt=[["work","Werkset"],["warmup","Opwarmset"],["drop","Dropset"],["fail","Tot falen"]];
+    Sheet.open("Set aanpassen",`
+      <div class="seg">${opt.map(([k,l])=>
+        `<button type="button" class="${set.t===k?"on":""}" onclick="Log.setType('${id}',${i},${j},'${k}')">${l}</button>`).join("")}</div>
+      <button class="btn danger wide" type="button" onclick="Log.delSet('${id}',${i},${j})">Set verwijderen</button>`);
+  },
+  setType(id,i,j,t){ this.vind(id).entries[i].sets[j].t=t; DB.save(); Sheet.close(); render(); },
+  delSet(id,i,j){
+    const s=this.vind(id);
+    s.entries[i].sets.splice(j,1);
+    if(!s.entries[i].sets.length) s.entries.splice(i,1);
+    DB.save(); Sheet.close(); render(); toast("Set verwijderd");
+  },
+  addSet(id,i,type){
+    const e=this.vind(id).entries[i];
+    const laatste=e.sets[e.sets.length-1];
+    e.sets.push({w:type==="warmup"?null:(laatste?laatste.w:null),
+                 r:type==="warmup"?null:(laatste?laatste.r:null),
+                 rpe:null,t:type||"work",done:true});
+    DB.save(); render();
+  },
+  exMenu(id,i){
+    const e=this.vind(id).entries[i];
+    Sheet.open(exName(e.exId),`
+      <div class="row">
+        <button class="btn ghost wide" type="button" onclick="Log.move('${id}',${i},-1)">↑ Omhoog</button>
+        <button class="btn ghost wide" type="button" onclick="Log.move('${id}',${i},1)">↓ Omlaag</button>
+      </div>
+      <button class="btn wide" type="button" onclick="Sheet.close();go('oefening','${e.exId}')">Voortgang bekijken</button>
+      <button class="btn danger wide" type="button" onclick="Log.delEx('${id}',${i})">Oefening verwijderen</button>`);
+  },
+  move(id,i,d){
+    const a=this.vind(id).entries, j=i+d;
+    if(j<0||j>=a.length) return;
+    [a[i],a[j]]=[a[j],a[i]]; DB.save(); Sheet.close(); render();
+  },
+  delEx(id,i){ this.vind(id).entries.splice(i,1); DB.save(); Sheet.close(); render(); toast("Oefening verwijderd"); },
+  addEx(id){
+    ExPicker.open(exId=>{
+      this.vind(id).entries.push({exId,note:"",rest:null,
+        sets:[{w:null,r:null,rpe:null,t:"work",done:true}]});
+      DB.save(); Sheet.close(); render();
+    });
+  },
+  meta(id){
+    const s=this.vind(id);
+    Sheet.open("Training aanpassen",`
+      <div class="field"><label>Naam</label>
+        <input class="ctrl" id="mNaam" value="${esc(s.name||"")}"></div>
+      <div class="field"><label>Datum</label>
+        <input class="ctrl" id="mDat" type="date" value="${s.date}"></div>
+      <div class="field"><label>Notitie</label>
+        <textarea class="ctrl" id="mNote" style="min-height:80px">${esc(s.notes||"")}</textarea></div>
+      <button class="btn primary wide" type="button" onclick="Log.metaSave('${id}')">Opslaan</button>`);
+  },
+  metaSave(id){
+    const s=this.vind(id);
+    s.name=$("#mNaam").value.trim()||"Training";
+    s.date=$("#mDat").value||s.date;
+    s.notes=$("#mNote").value.trim();
+    DB.save(); Sheet.close(); render(); toast("Opgeslagen");
   },
   async del(id){
     if(await ask("Training verwijderen?","Dit kan niet ongedaan worden gemaakt.","Verwijderen",true)){
