@@ -163,7 +163,7 @@ main{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;paddin
 .ex-more{width:34px;height:34px;display:grid;place-items:center;border-radius:9px;color:var(--ink-3);flex:none}
 .ex-more:active{background:var(--surface-3)}
 
-.setgrid{display:grid;grid-template-columns:30px minmax(0,1fr) minmax(0,1fr) 46px 46px;gap:7px;align-items:center;padding:7px 13px}
+.setgrid{display:grid;grid-template-columns:30px minmax(0,1fr) minmax(0,1fr) 46px;gap:7px;align-items:center;padding:7px 13px}
 .setgrid.head{padding-top:8px;padding-bottom:4px}
 .setgrid.head span{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);text-align:center}
 .setgrid.head span:first-child{text-align:left}
@@ -1164,7 +1164,6 @@ const Train={
     const cardio=ex.type==="cardio", tijd=ex.type==="time", bw=ex.type==="bw";
     const kolA = cardio?"Min":(tijd?"Sec":(bw?"Extra":"Kg"));
     const kolB = cardio?"Km":"Reps";
-    const rpe=S().rpe;
     return `<div class="ex">
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
@@ -1174,8 +1173,8 @@ const Train={
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
-      <div class="setgrid head"><span>Set</span><span>${kolA}</span><span>${kolB}</span>${rpe&&!cardio?`<span>RPE</span>`:`<span></span>`}<span></span></div>
-      ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige,rpe&&!cardio)).join("")}
+      <div class="setgrid head"><span>Set</span><span>${kolA}</span><span>${kolB}</span><span></span></div>
+      ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige)).join("")}
       <div class="ex-foot">
         <button class="btn sm wide" type="button" onclick="Train.addSet(${i})">+ Set</button>
         <button class="btn sm ghost" type="button" onclick="Train.addSet(${i},'warmup')">+ Opwarm</button>
@@ -1183,7 +1182,7 @@ const Train={
       </div>
     </div>`;
   },
-  setRow(s,j,i,e,vorige,rpe){
+  setRow(s,j,i,e,vorige){
     const vs = vorige && vorige.sets[j];
     const nr = e.sets.slice(0,j+1).filter(x=>x.t!=="warmup").length;
     const label = s.t==="warmup"?"W":(s.t==="drop"?"D":(s.t==="fail"?"F":nr));
@@ -1191,7 +1190,6 @@ const Train={
       <button class="setno ${s.t==="warmup"?"warmup":s.t==="drop"?"drop":s.t==="fail"?"fail":""}" type="button" onclick="Train.setMenu(${i},${j})">${label}</button>
       <input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">
       <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
-      ${rpe?`<input class="inp num rpe" inputmode="decimal" value="${s.rpe??""}" placeholder="–" onchange="Train.setVal(${i},${j},'rpe',this.value)" aria-label="RPE">`:`<span></span>`}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
     </div>`;
@@ -1510,14 +1508,13 @@ const Log={
           <div class="ex-head"><div class="ex-name"><b>${esc(ex.name)}</b>
             <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
             <button class="ex-more" type="button" onclick="go('oefening','${e.exId}')" aria-label="Voortgang">→</button></div>
-          <div class="setgrid head"><span>Set</span><span>Kg</span><span>Reps</span><span>RPE</span><span></span></div>
+          <div class="setgrid head"><span>Set</span><span>Kg</span><span>Reps</span><span></span></div>
           ${e.sets.map((x,j)=>{
             const nr=e.sets.slice(0,j+1).filter(y=>y.t!=="warmup").length;
             return `<div class="setgrid setrow">
               <span class="setno ${x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":""}">${x.t==="warmup"?"W":x.t==="drop"?"D":x.t==="fail"?"F":nr}</span>
               <span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>
               <span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>
-              <span class="num" style="text-align:center;color:var(--ink-3);font-size:14px">${x.rpe??""}</span>
               <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
@@ -1856,16 +1853,15 @@ const Tips={
         `Deze week <b class="num">${dezeW}</b> werksets tegen <b class="num">${vorigeW}</b> vorige week — een sprong van ${Math.round((dezeW/vorigeW-1)*100)}%.`,
         `Grote sprongen in volume zijn de meest voorspelbare weg naar een blessure. Houd de groei onder ~10% per week.`,4);
 
-    /* --- 6. Deload --- */
-    const rpes=[];
-    DB.d.sessions.filter(s=>daysAgo(s.date)<14).forEach(s=>s.entries.forEach(e=>e.sets.forEach(x=>{ if(isWork(x)&&x.rpe) rpes.push(x.rpe); })));
-    const gemRPE = rpes.length>=8 ? rpes.reduce((a,b)=>a+b,0)/rpes.length : 0;
-    const wkn=[0,1,2,3,4,5].map(i=>wk(weekKey(addDays(today(),-i*7))));
-    const zwaar = wkn.slice(1,5).filter(v=>v>0);
-    if(gemRPE>=8.6 && zwaar.length>=4)
-      add("warn","Herstel","Tijd voor een rustige week",
-        `Je gemiddelde RPE staat op <b class="num">${nf(Math.round(gemRPE*10)/10)}</b> over de laatste 2 weken, en je traint al ${zwaar.length}+ weken op volle kracht zonder terug te schakelen.`,
-        `Doe één week met ~60% van je normale sets en blijf 3 herhalingen van falen af. Je komt er sterker uit.`,3);
+    /* --- 6. Deload: al weken achtereen op volle kracht, zonder lichte week --- */
+    const wkn=[1,2,3,4,5,6].map(i=>wk(weekKey(addDays(today(),-i*7)))).filter(v=>v>0);
+    if(wkn.length>=5){
+      const top=Math.max(...wkn), laag=Math.min(...wkn);
+      if(laag>=top*0.7)
+        add("warn","Herstel","Tijd voor een rustige week",
+          `Je draait al <b class="num">${wkn.length}</b> weken op rij tussen de <b class="num">${laag}</b> en <b class="num">${top}</b> werksets, zonder één week terug te schakelen.`,
+          `Doe één week met ongeveer 60% van je normale sets en blijf drie herhalingen van falen af. Je komt er sterker uit — juist na zo'n week vallen de records.`,3);
+    }
 
     /* --- 7. Frequentie gedaald --- */
     const f4=DB.d.sessions.filter(s=>daysAgo(s.date)<28).length;
@@ -1891,14 +1887,7 @@ const Tips={
         `Je laatste 8 sessies zaten allemaal binnen 2 herhalingen van elkaar.`,
         `Wissel eens een blok van 4–6 zware herhalingen af met 12–15 lichtere. Andere prikkel, nieuwe groei.`,1));
 
-    /* --- 9. RPE niet ingevuld --- */
     const recent=DB.d.sessions.filter(s=>daysAgo(s.date)<28);
-    let mets=0, metRPE=0;
-    recent.forEach(s=>s.entries.forEach(e=>e.sets.forEach(x=>{ if(isWork(x)){ mets++; if(x.rpe) metRPE++; } })));
-    if(S().rpe && mets>=20 && metRPE/mets<0.2)
-      add("acc","Tip","Vul je RPE in",
-        `Van je ${mets} werksets deze maand heb je er ${metRPE} een zwaarte-cijfer gegeven.`,
-        `RPE (1–10: hoeveel herhalingen had je nog in de tank?) is het enige veld dat verraadt of je te hard of te zacht gaat. Twee tellen werk per set.`,1);
 
     /* --- 10. Lange sessies --- */
     const lang=recent.filter(s=>{ const d=sessionStats(s).dur; return d>6600; });
@@ -2070,16 +2059,14 @@ const Meer={
       <div class="field"><label>Gewicht van je stang (kg)</label>
         <input class="ctrl num" id="stBar" inputmode="decimal" value="${s.bar}"></div>
       <div class="hr"></div>
-      <div class="switch"><div class="sw-main"><b>RPE-veld tonen</b>
-        <span>Een cijfer van 1 tot 10 per set: hoe zwaar voelde het? Voedt de tips.</span></div>
-        <button class="toggle ${s.rpe?"on":""}" type="button" onclick="Meer.tog(this,'rpe')"><i></i></button></div>
+
       <div class="switch"><div class="sw-main"><b>Piep bij einde rust</b>
         <span>Werkt alleen als je geluid aan staat en je het scherm niet vergrendelt.</span></div>
         <button class="toggle ${s.geluid?"on":""}" type="button" onclick="Meer.tog(this,'geluid')"><i></i></button></div>
       <div class="hr"></div>
       <div class="field"><label>Thema</label>
         <div class="seg">${[["auto","Systeem"],["light","Licht"],["dark","Donker"]].map(([k,l])=>
-          `<button type="button" class="${(localStorage.getItem("ijzerlog.theme")||"auto")===k?"on":""}" onclick="Meer.theme('${k}',this)">${l}</button>`).join("")}</div></div>
+          `<button type="button" class="${themaNu()===k?"on":""}" onclick="Meer.theme('${k}',this)">${l}</button>`).join("")}</div></div>
       <button class="btn primary wide" type="button" onclick="Meer.stSave()">Opslaan</button>`);
   },
   tog(btn,k){ S()[k]=!S()[k]; btn.classList.toggle("on",S()[k]); DB.save(); },
@@ -2229,8 +2216,7 @@ const Meer={
         (formule van Epley). Het is de eerlijkste manier om 80 kg × 8 te vergelijken met 90 kg × 5.</p>
       <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
         <b>Volume</b> is gewicht × herhalingen, opgeteld. De belangrijkste maat voor hoeveel werk je hebt verzet.</p>
-      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
-        <b>RPE</b> is hoe zwaar een set voelde, van 1 tot 10. RPE 8 betekent: nog 2 herhalingen in de tank.</p>
+
       <div class="hr"></div>
       <button class="btn danger wide" type="button" onclick="Meer.wipe()">Alles wissen</button>`);
   },
@@ -2785,8 +2771,10 @@ function laadStartdata(){
 }
 
 /* ---------- 10. Thema & opstarten -------------------------------------- */
+/* Thema uitlezen kan mislukken (privé-venster), dus altijd met vangnet */
+function themaNu(){ try{ return localStorage.getItem("ijzerlog.theme")||"auto"; }catch(e){ return "auto"; } }
 function applyTheme(){
-  let t="auto"; try{ t=localStorage.getItem("ijzerlog.theme")||"auto"; }catch(e){}
+  const t=themaNu();
   const r=document.documentElement;
   if(t==="auto") r.removeAttribute("data-theme"); else r.setAttribute("data-theme",t);
 }
