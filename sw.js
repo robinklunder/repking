@@ -7,7 +7,10 @@
    Je gelogde trainingen staan hier los van — die zitten in de opslag van je
    browser en worden hier nooit aangeraakt.                                    */
 
-const CACHE = "repking-v1";
+/* Verhoog dit nummer bij elke uitgave: alles wat onder een oudere naam bewaard
+   is, wordt bij het activeren weggegooid. Zo blijft er nooit een oude versie
+   op een telefoon hangen. */
+const CACHE = "repking-v2";
 const BESTANDEN = [
   "./",
   "./index.html",
