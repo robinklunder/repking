@@ -10,7 +10,7 @@
 /* Verhoog dit nummer bij elke uitgave: alles wat onder een oudere naam bewaard
    is, wordt bij het activeren weggegooid. Zo blijft er nooit een oude versie
    op een telefoon hangen. */
-const CACHE = "repking-v2";
+const CACHE = "repking-v3";
 const BESTANDEN = [
   "./",
   "./index.html",
@@ -42,8 +42,13 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   if (new URL(req.url).origin !== location.origin) return;
 
+  // Bij het openen van de app de pagina altijd écht van het netwerk halen,
+  // niet uit de tussenopslag van de browser — anders zie je een oude versie.
+  const vers = req.mode === "navigate" || req.url.endsWith("index.html")
+             ? new Request(req, {cache: "reload"}) : req;
+
   e.respondWith(
-    fetch(req)
+    fetch(vers)
       .then(res => {
         const kopie = res.clone();
         caches.open(CACHE).then(c => c.put(req, kopie)).catch(() => {});

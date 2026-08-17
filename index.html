@@ -328,6 +328,21 @@ canvas{display:block;width:100%;height:100%}
 .tbl .n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
 .scrollx{overflow-x:auto;-webkit-overflow-scrolling:touch}
 
+/* Een app op je beginscherm heeft geen verversknop. Deze balk verschijnt als
+   er online een nieuwere versie staat, en vervangt die knop. */
+.updatebar{
+  position:fixed;left:0;right:0;bottom:calc(58px + var(--safe-b));z-index:70;
+  max-width:600px;margin:0 auto;
+  background:var(--accent);color:var(--accent-ink);
+  display:none;align-items:center;gap:10px;padding:11px 14px;
+  font-size:14px;font-weight:650;
+}
+.updatebar.on{display:flex}
+.updatebar span{flex:1}
+.updatebar button{
+  min-height:36px;padding:0 14px;border-radius:9px;font-size:14px;font-weight:750;
+  background:var(--accent-ink);color:var(--accent);
+}
 .toast{
   position:fixed;left:50%;bottom:calc(120px + var(--safe-b));transform:translate(-50%,20px);
   background:var(--ink);color:var(--ground);padding:11px 17px;border-radius:11px;
@@ -366,6 +381,11 @@ canvas{display:block;width:100%;height:100%}
   <div class="sheet-grip"></div>
   <div class="sheet-head"><h2 id="sheetTitle"></h2><button class="x" type="button" onclick="Sheet.close()" aria-label="Sluiten">✕</button></div>
   <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<div class="updatebar" id="updateBar">
+  <span>Nieuwe versie beschikbaar</span>
+  <button type="button" onclick="pasUpdateToe()">Vernieuwen</button>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -456,7 +476,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 15:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 15:35";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -2902,9 +2922,32 @@ if("serviceWorker" in navigator && location.protocol==="https:"){
   });
 }
 
+/* ---------- Verversen ---------------------------------------------------
+   Een app op het beginscherm heeft geen verversknop en iOS laadt hem vaak
+   uit eigen opslag. Daarom kijken we bij het openen zelf even of er online
+   een nieuwere versie staat, en bieden die dan aan.                       */
+async function zoekUpdate(){
+  if(location.protocol!=="https:") return;
+  try{
+    const r=await fetch("index.html?v="+Date.now(),{cache:"no-store"});
+    const t=await r.text();
+    const m=t.match(/const VERSIE="([^"]+)"/);
+    if(m && m[1]!==VERSIE) $("#updateBar").classList.add("on");
+  }catch(e){}
+}
+async function pasUpdateToe(){
+  try{
+    const regs=await navigator.serviceWorker.getRegistrations();
+    await Promise.all(regs.map(r=>r.unregister()));
+    for(const n of await caches.keys()) await caches.delete(n);
+  }catch(e){}
+  location.replace(location.pathname+"?v="+Date.now());
+}
+
 applyTheme();
 DB.boot();
 if(!DB.d.sessions.length && !DB.d.weights.length) laadStartdata();
 render();
 if(DB.d.active) toast("Je training liep nog — ga verder waar je gebleven was");
+zoekUpdate();
 </script>
