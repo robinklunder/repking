@@ -497,7 +497,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 19:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 19:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1351,7 +1351,7 @@ const Train={
     const laatste=allSessions()[0];
     let h="";
     h+=Advies.kaart();
-    h+=`<button class="btn ${DB.d.sessions.length?"":"primary"} lg wide" type="button" onclick="Train.start(null)">Lege training starten</button>`;
+    h+=`<button class="btn primary lg wide" type="button" onclick="Train.start(null)">Lege workout starten</button>`;
     if(DB.d.sessions.length>=4) h+=Advies.balans();
     if(DB.d.routines.length){
       h+=`<div class="sec-label">Schema's</div><div class="list">`+
