@@ -3204,7 +3204,7 @@ async function zoekUpdate(){
   try{
     const r=await fetch("index.html?v="+Date.now(),{cache:"no-store"});
     const t=await r.text();
-    const m=t.match(/const VERSIE="17 aug 2026 - 17:40"]+)"/);
+    const m=t.match(new RegExp('const VERSIE="([^"]+)"'));
     if(m && m[1]!==VERSIE) $("#updateBar").classList.add("on");
   }catch(e){}
 }
