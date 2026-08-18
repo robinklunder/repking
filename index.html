@@ -3,7 +3,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Rep King">
-<meta name="theme-color" content="#0D1015">
+<meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
@@ -18,7 +18,7 @@
   --ground:#EDEFF3; --surface:#FFFFFF; --surface-2:#F5F7FA; --surface-3:#E9ECF1;
   --line:#DBE0E7; --line-strong:#BFC7D2;
   --ink:#10151C; --ink-2:#49525F; --ink-3:#79828F;
-  --accent:#1D5DA6; --accent-ink:#FFFFFF; --accent-soft:#DCE9F8; --accent-line:#A9C7EA;
+  --accent:#C2410C; --accent-ink:#FFFFFF; --accent-soft:#FFEAD8; --accent-line:#F0B98E;
   --good:#0F7355; --good-soft:#D6EDE4;
   --warn:#8A5C09; --warn-soft:#F7E9C8;
   --bad:#AD2F26;  --bad-soft:#F8DDDA;
@@ -32,24 +32,24 @@
 }
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
-    --ground:#0D1015; --surface:#151A21; --surface-2:#1B212A; --surface-3:#232A34;
-    --line:#262D38; --line-strong:#3A4351;
-    --ink:#E8ECF3; --ink-2:#A3ADBB; --ink-3:#78828F;
-    --accent:#6FA8E8; --accent-ink:#08121E; --accent-soft:#16283C; --accent-line:#2C4A6D;
+    --ground:#000000; --surface:#0E0F12; --surface-2:#15171B; --surface-3:#1D2026;
+    --line:#23262C; --line-strong:#3A3F47;
+    --ink:#F0F1F3; --ink-2:#A7ACB4; --ink-3:#787D86;
+    --accent:#FF8A2B; --accent-ink:#170B00; --accent-soft:#33200A; --accent-line:#6B3F14;
     --good:#46C79E; --good-soft:#10332A;
-    --warn:#E0AC4E; --warn-soft:#332913;
+    --warn:#E3B341; --warn-soft:#332913;
     --bad:#F0685B;  --bad-soft:#3A1B18;
     --shadow-1:0 1px 2px rgba(0,0,0,.4);
     --shadow-2:0 2px 4px rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.45);
   }
 }
 :root[data-theme="dark"]{
-  --ground:#0D1015; --surface:#151A21; --surface-2:#1B212A; --surface-3:#232A34;
-  --line:#262D38; --line-strong:#3A4351;
-  --ink:#E8ECF3; --ink-2:#A3ADBB; --ink-3:#78828F;
-  --accent:#6FA8E8; --accent-ink:#08121E; --accent-soft:#16283C; --accent-line:#2C4A6D;
+  --ground:#000000; --surface:#0E0F12; --surface-2:#15171B; --surface-3:#1D2026;
+  --line:#23262C; --line-strong:#3A3F47;
+  --ink:#F0F1F3; --ink-2:#A7ACB4; --ink-3:#787D86;
+  --accent:#FF8A2B; --accent-ink:#170B00; --accent-soft:#33200A; --accent-line:#6B3F14;
   --good:#46C79E; --good-soft:#10332A;
-  --warn:#E0AC4E; --warn-soft:#332913;
+  --warn:#E3B341; --warn-soft:#332913;
   --bad:#F0685B;  --bad-soft:#3A1B18;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
   --shadow-2:0 2px 4px rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.45);
@@ -497,7 +497,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 18:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 19:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1299,7 +1299,7 @@ const Advies={
           }).join("")}
         </div>
         <div style="padding:0 14px 13px"><button class="btn primary wide" type="button"
-          onclick="Advies.start()">Start deze training</button></div>
+          onclick="Advies.start()">Start deze workout</button></div>
       </div>`;
   },
 
@@ -1432,8 +1432,9 @@ const Train={
     const vorige=hist[hist.length-1];
     const pr=prFor(e.exId,a.id);
     const cardio=ex.type==="cardio", tijd=ex.type==="time", bw=ex.type==="bw";
-    const kolA = cardio?"Min":(tijd?"Sec":(bw?"Extra":"Kg"));
-    const kolB = cardio?"Km":"Reps";
+    // Robin noteert eerst de herhalingen, dan het gewicht: 5 x 80 kg
+    const kolA = cardio?"Min":(tijd?"Sec":"Reps");
+    const kolB = cardio?"Km":(bw?"Extra":"Kg");
     const kolC = cardio?"Kcal":"";
     return `<div class="ex">
       <div class="ex-head">
@@ -1459,8 +1460,11 @@ const Train={
     const label = s.t==="warmup"?"W":(s.t==="drop"?"D":(s.t==="fail"?"F":nr));
     return `<div class="setgrid setrow ${cardio?"cardio ":""}${s.done?"done":""}">
       <button class="setno ${s.t==="warmup"?"warmup":s.t==="drop"?"drop":s.t==="fail"?"fail":""}" type="button" onclick="Train.setMenu(${i},${j})">${label}</button>
-      <input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">
-      <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
+      ${cardio
+        ? `<input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Minuten">
+           <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Kilometers">`
+        : `<input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
+           <input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">`}
       ${cardio?`<input class="inp num" inputmode="numeric" value="${s.kcal??""}" placeholder="–" onchange="Train.setVal(${i},${j},'kcal',this.value)" aria-label="Calorieën">`:""}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
@@ -1818,7 +1822,7 @@ const Log={
             <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
             <button class="ex-more" type="button" onclick="${b?`Log.exMenu('${s.id}',${i})`:`go('oefening','${e.exId}')`}"
               aria-label="${b?"Opties":"Voortgang"}">${b?"⋯":"→"}</button></div>
-          <div class="setgrid head"><span>Set</span><span>Kg</span><span>Reps</span><span></span></div>
+          <div class="setgrid head"><span>Set</span><span>Reps</span><span>Kg</span><span></span></div>
           ${e.sets.map((x,j)=>{
             const nr=e.sets.slice(0,j+1).filter(y=>y.t!=="warmup").length;
             const kleur=x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":"";
@@ -1826,12 +1830,12 @@ const Log={
             return `<div class="setgrid setrow">
               ${b?`<button class="setno ${kleur}" type="button" onclick="Log.setMenu('${s.id}',${i},${j})">${label}</button>`
                  :`<span class="setno ${kleur}">${label}</span>`}
-              ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
-                     onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
-                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>`}
               ${b?`<input class="inp num" inputmode="numeric" value="${x.r??""}" aria-label="Herhalingen"
                      onchange="Log.zet('${s.id}',${i},${j},'r',this.value)">`
                  :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>`}
+              ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
+                     onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
+                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>`}
               <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
@@ -3201,7 +3205,8 @@ function themaNu(){ try{ return localStorage.getItem("ijzerlog.theme")||"auto"; 
 function applyTheme(){
   const t=themaNu();
   const r=document.documentElement;
-  if(t==="auto") r.removeAttribute("data-theme"); else r.setAttribute("data-theme",t);
+  // Zonder eigen keuze staat de app op donker: zwart met oranje, zoals gevraagd
+  if(t==="auto") r.setAttribute("data-theme","dark"); else r.setAttribute("data-theme",t);
 }
 $("#view").addEventListener("scroll",()=>{
   $("#topbar").classList.toggle("stuck",$("#view").scrollTop>4);
