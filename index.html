@@ -185,6 +185,19 @@ main > *{flex:0 0 auto}
 .setno.warmup{background:var(--warn-soft);color:var(--warn)}
 .setno.drop{background:var(--accent-soft);color:var(--accent)}
 .setno.fail{background:var(--bad-soft);color:var(--bad)}
+/* Bij het apparaat wil je geen toetsenbord. Met − en + naast het veld pas je
+   het gewicht en de herhalingen aan zonder te typen; tikken op het getal zelf
+   opent nog gewoon het cijferklavier. */
+.step{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:10px;
+  overflow:hidden;background:var(--surface-2);min-height:46px}
+.step button{width:34px;flex:none;font-size:19px;font-weight:700;color:var(--ink-2);
+  background:var(--surface-3);line-height:1}
+.step button:active{background:var(--accent-soft);color:var(--accent)}
+.step input{flex:1;min-width:0;border:0;background:transparent;text-align:center;
+  font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:17px;font-weight:650;
+  letter-spacing:-.02em;padding:0}
+.step input:focus{outline:none;background:var(--surface)}
+.step input::placeholder{color:var(--ink-3);font-weight:500;opacity:.65}
 .inp{
   width:100%;min-height:42px;border:1px solid var(--line);background:var(--surface-2);
   border-radius:10px;text-align:center;font-family:var(--mono);font-variant-numeric:tabular-nums;
@@ -194,10 +207,10 @@ main > *{flex:0 0 auto}
 .inp:focus{outline:none;border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px var(--accent-soft)}
 .inp.rpe{font-size:15px}
 .tick{
-  width:46px;height:42px;border-radius:10px;display:grid;place-items:center;
+  width:46px;height:46px;border-radius:10px;display:grid;place-items:center;
   background:var(--surface-3);color:var(--ink-3);border:1px solid transparent;
 }
-.tick svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
+.tick svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
 .tick.on{background:var(--good);color:#fff;border-color:transparent}
 :root[data-theme="dark"] .tick.on, :root:not([data-theme="light"]) .tick.on{color:#08201A}
 @media (prefers-color-scheme:light){:root:not([data-theme="dark"]) .tick.on{color:#fff}}
@@ -427,6 +440,13 @@ function hhmm(sec){ const h=Math.floor(sec/3600), m=Math.round(sec%3600/60); ret
 const nf = n => (Math.round(n*100)/100).toLocaleString("nl-NL");
 const kf = n => n>=10000 ? Math.round(n/1000)+"k" : nf(Math.round(n));
 
+/* Robin leest een set als "5 x 80 kg": eerst het aantal, dan het gewicht. */
+function setTekst(w,r,metEenheid){
+  if(!r) return "–";
+  if(!w) return r+" ×";
+  return r+" × "+nf(w)+(metEenheid?" kg":"");
+}
+
 /* Geschat 1RM (Epley). Alleen zinnig tot ~12 herhalingen. */
 function e1rm(w,r){ if(!w||!r) return 0; if(r===1) return w; if(r>15) r=15; return w*(1+r/30); }
 function isWork(s){ return s.done && s.t!=="warmup"; }
@@ -477,7 +497,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 17:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 18:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1274,7 +1294,7 @@ const Advies={
               ${onbekend?`<button type="button" onclick="toonUitleg('${esc(o.naam).replace(/'/g,"\\'")}')"
                  style="width:26px;height:26px;flex:none;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:800;font-size:14px"
                  aria-label="Uitleg">?</button>`:`<span class="chip">${esc(o.groep)}</span>`}
-              <span class="num" style="font-size:12.5px;color:var(--ink-3);white-space:nowrap">${o.w?nf(o.w)+"×"+o.r:(o.sessies?"eigen gewicht":"nieuw")}</span>
+              <span class="num" style="font-size:12.5px;color:var(--ink-3);white-space:nowrap">${o.w?setTekst(o.w,o.r):(o.sessies?"eigen gewicht":"nieuw")}</span>
             </div>`;
           }).join("")}
         </div>
@@ -1354,7 +1374,7 @@ const Train={
         <div style="padding:11px 14px">
           ${laatste.entries.map(e=>{
             const ws=e.sets.filter(isWork);
-            return `<div style="display:flex;gap:8px;font-size:13.5px;padding:3px 0"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(exName(e.exId))}</span><span class="num" style="color:var(--ink-3);white-space:nowrap">${ws.length}×${ws.length?nf(Math.max(...ws.map(s=>s.w||0)))+"kg":"–"}</span></div>`;
+            return `<div style="display:flex;gap:8px;font-size:13.5px;padding:3px 0"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(exName(e.exId))}</span><span class="num" style="color:var(--ink-3);white-space:nowrap">${ws.length} sets${ws.length?" · "+nf(Math.max(...ws.map(s=>s.w||0)))+" kg":""}</span></div>`;
           }).join("")}
         </div>
         <div style="padding:0 14px 13px"><button class="btn sm wide" type="button" onclick="Train.repeat('${laatste.id}')">Deze training herhalen</button></div>
@@ -1419,7 +1439,7 @@ const Train={
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
           <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>
-          ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>`${nf(s.w||0)}×${s.r||0}`).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
+          ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>setTekst(s.w,s.r)).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
           ${pr.e1?`<span class="prev-hint">· record ${nf(Math.round(pr.e1))}kg e1RM</span>`:""}</div>
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
@@ -1478,7 +1498,7 @@ const Train={
     const pr=prFor(exId,sessId);
     if(!pr.sessies) return null;
     const e=e1rm(s.w,s.r);
-    if(e>pr.e1+0.05) return `Record! ${nf(s.w)}kg × ${s.r} — beste ooit (${nf(Math.round(e))}kg e1RM)`;
+    if(e>pr.e1+0.05) return `Record! ${setTekst(s.w,s.r,true)} — je beste ooit`;
     if(s.w>pr.zwaarst) return `Zwaarste ooit: ${nf(s.w)} kg`;
     return null;
   },
@@ -1596,7 +1616,7 @@ const Train={
     for(const e of a.entries){
       const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
       const b=bestOf(e.sets.filter(isWork));
-      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${nf(b.w)}kg × ${b.r}`);
+      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true)}`);
     }
     Sheet.open("Training afronden",`
       <div class="tiles">
@@ -1744,7 +1764,7 @@ const Log={
             return `<button class="li" type="button" onclick="go('sessie','${s.id}')">
               <div class="li-main"><b>${esc(titel)}</b>
                 <span>${dShort(s.date)} · ${st.oef} ${st.oef===1?"oefening":"oefeningen"} · ${st.sets} sets</span>
-                ${top&&top.w?`<span class="num" style="color:var(--ink-2);font-size:12.5px">zwaarst: ${esc(top.naam)} ${nf(top.w)} × ${top.r}</span>`:""}
+                ${top&&top.w?`<span class="num" style="color:var(--ink-2);font-size:12.5px">zwaarst: ${esc(top.naam)} ${setTekst(top.w,top.r,true)}</span>`:""}
               </div>
               ${records?`<span class="chip good">${records>1?records+"× ":""}PR</span>`:""}
               <div class="chev"></div></button>`;
@@ -2023,7 +2043,7 @@ const Prog={
         const trend=this.trend(h);
         return `<button class="li" type="button" onclick="go('oefening','${id}')">
           <div class="li-main"><b>${esc(exName(id))}</b><span>${h.length} sessies · ${n} sets${last?" · "+relDate(last.date):""}</span></div>
-          <div class="li-right"><span class="num" style="font-weight:700;color:var(--ink)">${pr.e1?nf(Math.round(pr.e1)):"–"}</span> e1RM
+          <div class="li-right"><span class="num" style="font-weight:700;color:var(--ink)">${pr.zwaarst?nf(pr.zwaarst):"–"}</span> kg
             ${trend?`<br><span class="chip ${trend.k}" style="font-size:10px">${trend.t}</span>`:""}</div>
           <div class="chev"></div></button>`;
       }).join("")}</div>
@@ -2061,17 +2081,19 @@ const Prog={
       `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
     if(!h.length){ V.innerHTML=`<div class="card"><div class="empty"><p>Nog niet gelogd.</p></div></div>`; return; }
 
-    const pts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.round(bestOf(d.sets).e1*10)/10}));
+    // Zwaarste set per sessie — dat is wat hij herkent, en wat hij echt heeft getild
+    const pts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.max(...d.sets.map(s=>s.w||0))}))
+                .filter(p=>p.y>0);
     const volPts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.round(bestOf(d.sets).vol)}));
 
     V.innerHTML=`
       <div class="tiles">
-        <div class="tile"><div class="k">Beste e1RM</div><div class="v">${nf(Math.round(pr.e1))}</div><div class="u">kg${pr.e1Date?" · "+relDate(pr.e1Date):""}</div></div>
         <div class="tile"><div class="k">Zwaarst</div><div class="v">${nf(pr.zwaarst)}</div><div class="u">kg</div></div>
         <div class="tile"><div class="k">Meeste reps</div><div class="v">${pr.reps}</div><div class="u">in één set</div></div>
+        <div class="tile"><div class="k">Sessies</div><div class="v">${h.length}</div><div class="u">gelogd</div></div>
       </div>
       <div class="card">
-        <div class="card-head"><div class="card-title">Geschat 1RM</div>
+        <div class="card-head"><div class="card-title">Zwaarste set per training</div>
           <span class="chip ${(this.trend(h)||{k:""}).k}">${(this.trend(h)||{t:"nieuw"}).t}</span></div>
         <div class="chartwrap" style="padding:0 4px"><canvas id="cE1"></canvas></div>
       </div>
@@ -2086,7 +2108,7 @@ const Prog={
           <tbody>${h.slice().reverse().map(d=>{
             const b=bestOf(d.sets);
             return `<tr><td>${dShort(d.date)}</td>
-              <td class="n">${nf(b.w)} × ${b.r}</td>
+              <td class="n">${setTekst(b.w,b.r)}</td>
               <td class="n">${d.sets.length}</td>
               <td class="n">${kf(b.vol)}</td></tr>`;
           }).join("")}</tbody></table></div>
@@ -2186,7 +2208,7 @@ const Tips={
       if(vNu>vEerder*1.02){
         const nu3=zwaarste(nu[0].d);
         if(groeit++<2) add("good","Groeit",`${exName(id)} loopt goed`,
-          `Je zwaarste set is nu <b class="num">${nf(nu3.w)} kg × ${nu3.r}</b>, en je gaat er nog steeds op vooruit.`,
+          `Je zwaarste set is nu <b class="num">${setTekst(nu3.w,nu3.r,true)}</b>, en je gaat er nog steeds op vooruit.`,
           `Blijf op dit spoor. Voeg volgende keer 2,5 kg toe óf één herhaling per set — niet allebei tegelijk.`,1);
       } else if(vNu<=vEerder*1.005){
         stil.push({id,zwaarst:zwaarste(),wkn:Math.max(1,Math.round(daysAgo(piekDatum)/7)),
@@ -2197,7 +2219,7 @@ const Tips={
     for(const s of stil.slice(0,2)){
       const laag = s.reps>=8;
       add("bad","Stilstand",`${exName(s.id)} staat stil`,
-        `Je zwaarste set blijft <b class="num">${nf(s.zwaarst.w)} kg × ${s.zwaarst.r}</b>, en daar sta je nu <b class="num">${s.wkn}</b> weken. De laatste sessies kom je daar niet meer boven.`,
+        `Je zwaarste set blijft <b class="num">${setTekst(s.zwaarst.w,s.zwaarst.r,true)}</b>, en daar sta je nu <b class="num">${s.wkn}</b> weken. De laatste sessies kom je daar niet meer boven.`,
         `Verander één ding tegelijk, niet alles: ${laag?`ga van ${s.reps} herhalingen naar 4–6 zware`:`ga van ${s.reps} herhalingen naar 8–12 met minder gewicht`}, óf zet er één werkset per training bij, óf neem eerst een rustige week. Geef elke aanpassing drie weken voordat je oordeelt.`,3);
     }
     if(stil.length>2)
@@ -2615,7 +2637,8 @@ const Meer={
       <div class="notebox">Maak daarom af en toe een back-up via Meer → Exporteren. Dat bestand kun je altijd weer inladen, ook op een nieuwe telefoon.</div>
       <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
         <b>Geschat 1RM</b> is het gewicht dat je waarschijnlijk één keer kunt tillen, berekend uit je sets
-        (formule van Epley). Het is de eerlijkste manier om 80 kg × 8 te vergelijken met 90 kg × 5.</p>
+        (formule van Epley). De app gebruikt dit om te zien of je vooruitgaat, ook als je van
+        herhalingen wisselt — 8 × 80 kg en 5 × 90 kg zijn immers ongeveer even zwaar.</p>
       <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
         <b>Volume</b> is gewicht × herhalingen, opgeteld. De belangrijkste maat voor hoeveel werk je hebt verzet.</p>
 
@@ -2734,10 +2757,10 @@ const Imp={
       ${r.over.length?`<div class="warnbox">${r.over.length} regel(s) begreep ik niet en sla ik over:<br><span style="font-weight:400;font-family:var(--mono);font-size:12px">${esc(r.over.slice(0,6).join(" · "))}${r.over.length>6?" …":""}</span></div>`:""}
       <div class="sec-label">Controleer voordat je opslaat</div>
       <div class="card"><div class="scrollx"><table class="tbl">
-        <thead><tr><th>Datum</th><th>Oefening</th><th style="text-align:right">Sets (gewicht × reps)</th></tr></thead>
+        <thead><tr><th>Datum</th><th>Oefening</th><th style="text-align:right">Sets (reps × gewicht)</th></tr></thead>
         <tbody>${r.sessions.slice(0,20).map(s=>s.entries.map((e,i)=>
           `<tr><td>${i?"":dShort(s.date)}</td><td>${esc(e.naam)}${e.note?`<br><span style="font-size:11px;color:var(--ink-3)">${esc(e.note)}</span>`:""}</td>
-           <td class="n">${e.sets.map(x=>`<span style="${x.t==="warmup"?"color:var(--ink-3)":""}">${x.w?nf(x.w):"eigen"}×${x.r}</span>`).join("  ")}</td></tr>`).join("")).join("")}</tbody>
+           <td class="n">${e.sets.map(x=>`<span style="${x.t==="warmup"?"color:var(--ink-3)":""}">${x.r}×${x.w?nf(x.w):"eigen"}</span>`).join("  ")}</td></tr>`).join("")).join("")}</tbody>
       </table></div></div>
       ${warmups?`<p class="mut">Grijze sets zijn als opwarmset gemarkeerd; die tellen niet mee in je records en volume.</p>`:""}
       ${r.sessions.length>20?`<p class="mut">…en nog ${r.sessions.length-20} trainingen.</p>`:""}
