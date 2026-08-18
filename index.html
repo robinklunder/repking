@@ -170,6 +170,7 @@ main > *{flex:0 0 auto}
 .ex-more:active{background:var(--surface-3)}
 
 .setgrid{display:grid;grid-template-columns:30px minmax(0,1fr) minmax(0,1fr) 46px;gap:7px;align-items:center;padding:7px 13px}
+.setgrid.cardio{grid-template-columns:30px repeat(3,minmax(0,1fr)) 46px}
 .setgrid.head{padding-top:8px;padding-bottom:4px}
 .setgrid.head span{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);text-align:center}
 .setgrid.head span:first-child{text-align:left}
@@ -476,7 +477,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 16:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="17 aug 2026 - 17:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -490,6 +491,14 @@ const DB={
     for(const k in f) if(this.d[k]===undefined) this.d[k]=f[k];
     for(const k in f.settings) if(this.d.settings[k]===undefined) this.d.settings[k]=f.settings[k];
     if(!this.d.exercises.length) this.d.exercises=defaultExercises();
+    // Eenmalig: oefeningen die Robin niet doet uit het voorstel houden
+    if(!this.d.settings.aanpassing1){
+      for(const n of ["Hip thrust"]){
+        const e=this.d.exercises.find(x=>x.name.toLowerCase()===n.toLowerCase());
+        if(e) e.nietVoorstellen=true;
+      }
+      this.d.settings.aanpassing1=true;
+    }
   },
   fresh(){
     return {
@@ -616,17 +625,22 @@ function prFor(exId,excludeSessionId){
   return {e1,zwaarst,reps,volSessie,e1Date,sessies:h.length};
 }
 function sessionStats(sess){
-  let vol=0,sets=0,reps=0; const groepen={};
+  let vol=0,sets=0,reps=0,kcal=0; const groepen={};
   for(const e of sess.entries){
     const ex=exById(e.exId); const g=ex?ex.groep:"?";
+    // Cardio telt niet mee in volume en werksets: daar staat minuten in het
+    // gewichtsveld, en minuten × kilometers is geen kilo's.
+    const isCardio = ex && ex.type==="cardio";
     for(const s of e.sets){
       if(!isWork(s)) continue;
+      kcal += s.kcal||0;
+      if(isCardio) continue;
       sets++; reps+=s.r||0; const v=(s.w||0)*(s.r||0); vol+=v;
       groepen[g]=(groepen[g]||0)+1;
     }
   }
   const dur = sess.start&&sess.end ? Math.round((sess.end-sess.start)/1000) : 0;
-  return {vol,sets,reps,dur,groepen,oef:sess.entries.length};
+  return {vol,sets,reps,dur,kcal,groepen,oef:sess.entries.length};
 }
 function weekKey(dateStr){
   const d=dParse(dateStr); const day=(d.getDay()+6)%7; d.setDate(d.getDate()-day);
@@ -914,6 +928,196 @@ const Inspanning={
 };
 
 /* ============================================================================
+   UITLEG — hoe voer je een oefening uit?
+
+   Bewust tekst en geen foto's: bruikbare oefenfoto's zijn van iemand anders en
+   die mag ik hier niet neerzetten. Wat wel werkt is een korte uitleg plus een
+   knop naar video's, want een beweging zien is nu eenmaal duidelijker dan lezen.
+   ============================================================================ */
+const UITLEG=[
+ {re:/bulgarian|split squat/i, naam:"Bulgarian split squat", spieren:"Quadriceps en bilspieren, één been tegelijk",
+  stappen:["Zet je achterste voet op een bank achter je, wreef naar beneden.",
+           "Voorste voet ver genoeg naar voren zodat je knie boven je enkel blijft.",
+           "Zak recht naar beneden tot je achterste knie bijna de grond raakt.",
+           "Duw omhoog via je voorste hiel."],
+  letop:["Begin zonder gewicht — de balans is het lastigst.","Romp rechtop, niet voorover hangen."]},
+
+ {re:/squat/i, naam:"Squat", spieren:"Quadriceps, bilspieren en onderrug",
+  stappen:["Stang op je bovenrug, voeten iets breder dan je heupen, tenen licht naar buiten.",
+           "Adem in, span je buik aan alsof iemand je gaat stompen.",
+           "Zak alsof je op een lage stoel gaat zitten: knieën naar buiten, borst omhoog.",
+           "Ga zo diep als je kunt zonder dat je onderrug bolt, en duw omhoog via je hielen."],
+  letop:["Knieën mogen over je tenen — ze mogen alleen niet naar binnen vallen.",
+         "Begin licht en film jezelf een keer van opzij."]},
+
+ {re:/leg press/i, naam:"Leg press", spieren:"Quadriceps en bilspieren",
+  stappen:["Voeten op schouderbreedte, midden op het platform.",
+           "Laat het gewicht rustig zakken tot je knieën ongeveer 90 graden zijn.",
+           "Duw terug zonder je knieën helemaal op slot te zetten."],
+  letop:["Je onderrug moet tegen het kussen blijven; komt je bekken los, dan ga je te diep.",
+         "Nooit met een klap doorstrekken."]},
+
+ {re:/leg extension/i, naam:"Leg extension", spieren:"Quadriceps",
+  stappen:["Stel de rugleuning zo in dat je knieën precies op het draaipunt zitten.",
+           "Strek je benen rustig tot ze bijna recht zijn.",
+           "Laat langzaam zakken — dat zakken doet het meeste werk."],
+  letop:["Niet zwaaien met je bovenlichaam.","Twee tellen omhoog, drie tellen omlaag werkt beter dan zwaar en snel."]},
+
+ {re:/leg curl|hamstring curl/i, naam:"Leg curl", spieren:"Hamstrings",
+  stappen:["Kussen net boven je hielen, knieën op het draaipunt van de machine.",
+           "Buig je knieën en trek je hielen richting je billen.",
+           "Laat rustig terugkomen tot je hamstrings gerekt zijn."],
+  letop:["Heupen blijven op de bank — til je bekken op, dan is het te zwaar.",
+         "Dit is de spier die bij jou het meest achterloopt; begin licht."]},
+
+ {re:/romanian|rdl/i, naam:"Romanian deadlift", spieren:"Hamstrings en bilspieren",
+  stappen:["Sta rechtop met de stang tegen je bovenbenen, knieën heel licht gebogen.",
+           "Duw je heupen naar achteren en laat de stang langs je benen zakken.",
+           "Stop als je rek voelt in je hamstrings, meestal net onder je knieën.",
+           "Kom omhoog door je heupen naar voren te duwen en je billen aan te spannen."],
+  letop:["Je rug blijft recht — dit is een heupbeweging, geen buiging van je rug.",
+         "De stang blijft tegen je benen aan schuren, niet ervandaan."]},
+
+ {re:/glute bridge|hip thrust/i, naam:"Glute bridge / hip thrust", spieren:"Bilspieren",
+  stappen:["Schouderbladen op een bank of op de grond, voeten plat, knieën 90 graden.",
+           "Duw je heupen omhoog tot je romp en bovenbenen een lijn vormen.",
+           "Knijp je billen een tel aan bovenin en zak rustig terug."],
+  letop:["Kin naar je borst, niet met je hoofd achterover.","Duw via je hielen, niet je tenen."]},
+
+ {re:/calf|kuit/i, naam:"Calf raise", spieren:"Kuiten",
+  stappen:["Voorvoeten op de rand van een verhoging, hielen vrij.",
+           "Laat je hielen zo ver mogelijk zakken tot je rek voelt.",
+           "Duw hoog op je tenen en houd een tel vast."],
+  letop:["Volledig bereik is hier belangrijker dan gewicht.","Rustig aan — niet stuiteren."]},
+
+ {re:/lunge/i, naam:"Lunge", spieren:"Quadriceps en bilspieren",
+  stappen:["Stap naar voren en zak recht naar beneden tot beide knieën 90 graden zijn.",
+           "Duw jezelf terug via je voorste hiel."],
+  letop:["Grote stap belast je bilspieren, kleine stap je quadriceps.","Romp rechtop houden."]},
+
+ {re:/deadlift/i, naam:"Deadlift", spieren:"Hele achterkant: rug, bilspieren, hamstrings",
+  stappen:["Stang boven het midden van je voeten, schenen er bijna tegenaan.",
+           "Pak vast net buiten je benen, borst omhoog, rug recht.",
+           "Duw de grond weg met je benen en houd de stang tegen je lichaam.",
+           "Sta rechtop met je billen aangespannen, niet achterover leunen."],
+  letop:["Bolt je rug, dan is het te zwaar.","Laat hem rustig zakken, niet laten vallen."]},
+
+ {re:/pull.?up|chin.?up/i, naam:"Pull-up", spieren:"Rug en biceps",
+  stappen:["Hang met gestrekte armen, schouders actief naar beneden getrokken.",
+           "Trek je borst richting de stang, ellebogen naar je zij.",
+           "Zak gecontroleerd tot je armen weer recht zijn."],
+  letop:["Lukken er nog geen? Gebruik een elastiek of de machine met tegengewicht.",
+         "Niet zwaaien met je benen."]},
+
+ {re:/tricep|push ?down|skull|rope pull ?down|overhead extension/i, naam:"Triceps-oefening", spieren:"Triceps",
+  stappen:["Ellebogen langs je lichaam en op hun plek houden.",
+           "Strek alleen je onderarm, tot je arm bijna recht is.",
+           "Laat rustig terugkomen."],
+  letop:["Bewegen je ellebogen mee, dan is het te zwaar.","Jouw pezen zijn gevoelig; blijf hier weg van maximaal."]},
+
+ {re:/lat.?pull|pulldown/i, naam:"Lat pulldown", spieren:"Rug (latissimus) en biceps",
+  stappen:["Handen iets breder dan je schouders, dijen onder de rol.",
+           "Trek de stang naar je bovenborst, borst omhoog.",
+           "Laat rustig terugkomen tot je armen gestrekt zijn."],
+  letop:["Achterover leunen mag een beetje, maar niet slingeren.","Trek met je ellebogen, niet met je handen."]},
+
+ {re:/\brow\b|rows/i, naam:"Row", spieren:"Rug, achterste schouders en biceps",
+  stappen:["Borst omhoog, rug recht, schouders laag.",
+           "Trek het gewicht naar je onderste ribben, ellebogen langs je lichaam.",
+           "Knijp je schouderbladen samen en laat rustig terugkomen."],
+  letop:["Niet met je bovenlichaam meezwaaien.","Rustiger en lichter geeft hier meer effect."]},
+
+ {re:/face pull/i, naam:"Face pull", spieren:"Achterste schouders en bovenrug",
+  stappen:["Kabel op ooghoogte, touw met beide handen vast.",
+           "Trek richting je voorhoofd en draai je handen naar buiten.",
+           "Knijp je schouderbladen samen en laat rustig terug."],
+  letop:["Licht gewicht, veel herhalingen.","Precies de oefening die je schouders nodig hebben na al dat drukwerk."]},
+
+ {re:/plank/i, naam:"Plank", spieren:"Buik en romp",
+  stappen:["Onderarmen op de grond, ellebogen onder je schouders.",
+           "Span je billen en buik aan zodat je lichaam één rechte lijn is.",
+           "Adem rustig door en houd vast."],
+  letop:["Heupen niet omhoog en niet laten hangen.","Beter dertig seconden strak dan twee minuten slap."]},
+
+ {re:/crunch|sit.?up|leg raise|knee raise|knee up/i, naam:"Buikoefening", spieren:"Buikspieren",
+  stappen:["Onderrug tegen de grond of het kussen aan.",
+           "Beweeg rustig en gecontroleerd, zonder momentum.",
+           "Adem uit op de inspanning."],
+  letop:["Niet aan je nek trekken.","Kwaliteit boven aantal."]},
+
+ {re:/bench press|chest press/i, naam:"Bench press", spieren:"Borst, schouders en triceps",
+  stappen:["Ogen onder de stang, schouderbladen naar elkaar en naar beneden.",
+           "Voeten stevig op de grond, lichte holling in je onderrug.",
+           "Laat de stang zakken tot je onderste borst, ellebogen ongeveer 45 graden.",
+           "Duw omhoog en houd je schouderbladen op hun plek."],
+  letop:["Laat je schouders niet naar voren rollen — dat is precies waar jouw klachten zitten.",
+         "Bij zwaar werk: gebruik een spotter of de veiligheidspennen."]},
+
+ {re:/shoulder press|overhead press|\bohp\b/i, naam:"Shoulder press", spieren:"Schouders en triceps",
+  stappen:["Gewicht op schouderhoogte, ellebogen iets voor je lichaam.",
+           "Duw recht omhoog tot je armen gestrekt zijn.",
+           "Laat rustig terugzakken tot schouderhoogte."],
+  letop:["Span je buik aan zodat je niet achterover leunt.","Niet in je nek maar voor je gezicht langs."]},
+
+ {re:/lateral raise|side raise/i, naam:"Lateral raise", spieren:"Zijkant van je schouders",
+  stappen:["Lichte gewichten langs je lichaam, elleboog iets gebogen.",
+           "Til je armen zijwaarts tot schouderhoogte.",
+           "Laat langzaam zakken."],
+  letop:["Licht gewicht is hier echt beter.","Niet hoger dan je schouders."]},
+
+
+ {re:/curl/i, naam:"Bicep curl", spieren:"Biceps",
+  stappen:["Ellebogen langs je lichaam, schouders laag.",
+           "Buig je arm tot het gewicht bij je schouder is.",
+           "Laat langzaam zakken tot je arm bijna recht is."],
+  letop:["Niet met je rug meezwaaien.","Het zakken langzaam doen levert het meeste op."]},
+
+ {re:/\bfly|flies/i, naam:"Fly", spieren:"Borst",
+  stappen:["Lichte buiging in je ellebogen die je vasthoudt.",
+           "Open je armen tot je rek voelt in je borst.",
+           "Breng ze samen alsof je iets omhelst."],
+  letop:["Dit is geen drukoefening — je armen blijven in dezelfde hoek.","Licht gewicht, rustige beweging."]},
+
+ {re:/dip/i, naam:"Dips", spieren:"Borst en triceps",
+  stappen:["Armen gestrekt op de beugels, lichaam licht voorover voor meer borst.",
+           "Zak tot je bovenarmen ongeveer horizontaal zijn.",
+           "Duw jezelf terug omhoog."],
+  letop:["Niet dieper dan comfortabel — dit is zwaar voor je schoudergewricht.",
+         "Rechtop blijven belast je triceps meer."]},
+
+ {re:/crosstrainer|loopband|hometrainer|fiets|roei/i, naam:"Cardio", spieren:"Conditie",
+  stappen:["Begin vijf minuten rustig om op temperatuur te komen.",
+           "Kies een tempo dat je vol kunt houden en waarbij praten net lastig wordt.",
+           "Bouw af in plaats van abrupt stoppen."],
+  letop:["Noteer je minuten en je calorieën, dan zie je later je conditie vooruitgaan."]},
+];
+function uitlegVoor(naam){ return UITLEG.find(u=>u.re.test(naam)) || null; }
+
+function toonUitleg(naam){
+  const u=uitlegVoor(naam);
+  const zoek=`https://www.youtube.com/results?search_query=${encodeURIComponent("how to "+naam+" proper form")}`;
+  Sheet.open(esc(naam), `
+    ${u?`
+      <p class="mut" style="font-size:13px">${esc(u.spieren)}</p>
+      <div class="sec-label">Zo doe je het</div>
+      <ol style="font-size:14.5px;line-height:1.65;color:var(--ink-2);padding-left:20px;list-style:decimal;display:flex;flex-direction:column;gap:6px">
+        ${u.stappen.map(s=>`<li>${esc(s)}</li>`).join("")}
+      </ol>
+      <div class="sec-label">Let op</div>
+      <ul style="font-size:14.5px;line-height:1.6;color:var(--ink-2);display:flex;flex-direction:column;gap:7px">
+        ${u.letop.map(s=>`<li style="display:flex;gap:9px"><span style="color:var(--warn)">•</span><span>${esc(s)}</span></li>`).join("")}
+      </ul>`
+    :`<p class="mut" style="font-size:14.5px;color:var(--ink-2)">
+        Voor deze oefening heb ik geen uitleg klaarstaan. Een video zegt meestal
+        toch meer dan tekst — kijk er eerst een paar en let vooral op de rug en de
+        stand van de ellebogen.</p>`}
+    <a class="btn primary wide" href="${zoek}" target="_blank" rel="noopener"
+       style="text-decoration:none">Bekijk video's</a>
+    <p class="mut">Twijfel je over je uitvoering? Film jezelf een keer van opzij. Dat werkt
+      beter dan welke uitleg ook — je ziet meteen wat er niet klopt.</p>`);
+}
+
+/* ============================================================================
    ADVIES — wat zou je vandaag moeten trainen?
 
    Werkt met een streefaantal werksets per week per spiergroep. Die getallen
@@ -1005,7 +1209,7 @@ const Advies={
     groepen.forEach((g,gi)=>{
       const perGroep=aantal[gi];
       const metHistorie=DB.d.exercises
-        .filter(e=>e.groep===g && !e.arch && e.type!=="cardio")
+        .filter(e=>e.groep===g && !e.arch && !e.nietVoorstellen && e.type!=="cardio")
         .map(e=>{
           const h=historyFor(e.id); if(!h.length) return null;
           const l=h[h.length-1], b=bestOf(l.sets);
@@ -1021,7 +1225,7 @@ const Advies={
       lijst.sort((a,b)=>gewicht(b)-gewicht(a));
 
       if(!lijst.length){
-        const e=DB.d.exercises.find(x=>x.groep===g && !x.arch && x.type!=="cardio");
+        const e=DB.d.exercises.find(x=>x.groep===g && !x.arch && !x.nietVoorstellen && x.type!=="cardio");
         if(e) lijst=[{id:e.id,naam:e.name,sessies:0,dagen:999,w:null,r:null}];
       }
       for(const k of lijst.slice(0,perGroep)) uit.push({...k,groep:g});
@@ -1062,12 +1266,17 @@ const Advies={
           <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${reden}.</p>
         </div>
         <div style="padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px">
-          ${v.oefeningen.map(o=>`
-            <div style="display:flex;align-items:center;gap:10px">
+          ${v.oefeningen.map(o=>{
+            // Nieuw of lang niet gedaan? Dan een knopje met uitleg erbij.
+            const onbekend = !o.sessies || o.dagen>90;
+            return `<div style="display:flex;align-items:center;gap:10px">
               <span style="flex:1;min-width:0;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.naam)}</span>
-              <span class="chip">${esc(o.groep)}</span>
+              ${onbekend?`<button type="button" onclick="toonUitleg('${esc(o.naam).replace(/'/g,"\\'")}')"
+                 style="width:26px;height:26px;flex:none;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:800;font-size:14px"
+                 aria-label="Uitleg">?</button>`:`<span class="chip">${esc(o.groep)}</span>`}
               <span class="num" style="font-size:12.5px;color:var(--ink-3);white-space:nowrap">${o.w?nf(o.w)+"×"+o.r:(o.sessies?"eigen gewicht":"nieuw")}</span>
-            </div>`).join("")}
+            </div>`;
+          }).join("")}
         </div>
         <div style="padding:0 14px 13px"><button class="btn primary wide" type="button"
           onclick="Advies.start()">Start deze training</button></div>
@@ -1205,6 +1414,7 @@ const Train={
     const cardio=ex.type==="cardio", tijd=ex.type==="time", bw=ex.type==="bw";
     const kolA = cardio?"Min":(tijd?"Sec":(bw?"Extra":"Kg"));
     const kolB = cardio?"Km":"Reps";
+    const kolC = cardio?"Kcal":"";
     return `<div class="ex">
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
@@ -1214,8 +1424,8 @@ const Train={
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
-      <div class="setgrid head"><span>Set</span><span>${kolA}</span><span>${kolB}</span><span></span></div>
-      ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige)).join("")}
+      <div class="setgrid head${cardio?" cardio":""}"><span>Set</span><span>${kolA}</span><span>${kolB}</span>${cardio?`<span>${kolC}</span>`:""}<span></span></div>
+      ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige,cardio)).join("")}
       <div class="ex-foot">
         <button class="btn sm wide" type="button" onclick="Train.addSet(${i})">+ Set</button>
         <button class="btn sm ghost" type="button" onclick="Train.addSet(${i},'warmup')">+ Opwarm</button>
@@ -1223,14 +1433,15 @@ const Train={
       </div>
     </div>`;
   },
-  setRow(s,j,i,e,vorige){
+  setRow(s,j,i,e,vorige,cardio){
     const vs = vorige && vorige.sets[j];
     const nr = e.sets.slice(0,j+1).filter(x=>x.t!=="warmup").length;
     const label = s.t==="warmup"?"W":(s.t==="drop"?"D":(s.t==="fail"?"F":nr));
-    return `<div class="setgrid setrow ${s.done?"done":""}">
+    return `<div class="setgrid setrow ${cardio?"cardio ":""}${s.done?"done":""}">
       <button class="setno ${s.t==="warmup"?"warmup":s.t==="drop"?"drop":s.t==="fail"?"fail":""}" type="button" onclick="Train.setMenu(${i},${j})">${label}</button>
       <input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">
       <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
+      ${cardio?`<input class="inp num" inputmode="numeric" value="${s.kcal??""}" placeholder="–" onchange="Train.setVal(${i},${j},'kcal',this.value)" aria-label="Calorieën">`:""}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
     </div>`;
@@ -1239,7 +1450,7 @@ const Train={
   setVal(i,j,k,v){
     const s=DB.d.active.entries[i].sets[j];
     v=String(v).replace(",",".").trim();
-    s[k]= v===""?null:(k==="r"?parseInt(v,10)||null:parseFloat(v)||null);
+    s[k]= v===""?null:((k==="r"||k==="kcal")?parseInt(v,10)||null:parseFloat(v)||null);
     DB.save();
   },
   toggle(i,j){
@@ -1297,6 +1508,8 @@ const Train={
         <input class="ctrl num" id="exRest" inputmode="numeric" value="${e.rest||""}" placeholder="${S().rest} (standaard)"></div>
       <button class="btn primary wide" type="button" onclick="Train.exSave(${i})">Opslaan</button>
       <div class="hr"></div>
+      <button class="btn primary wide" type="button" onclick="Train.bovenaan(${i})">Deze nu doen</button>
+      <button class="btn wide" type="button" onclick="toonUitleg('${esc(exName(e.exId)).replace(/'/g,"\\'")}')">Hoe doe ik dit?</button>
       <div class="row">
         <button class="btn ghost wide" type="button" onclick="Train.move(${i},-1)">↑ Omhoog</button>
         <button class="btn ghost wide" type="button" onclick="Train.move(${i},1)">↓ Omlaag</button>
@@ -1313,6 +1526,12 @@ const Train={
   move(i,d){
     const a=DB.d.active.entries, j=i+d; if(j<0||j>=a.length) return;
     [a[i],a[j]]=[a[j],a[i]]; DB.save(); Sheet.close(); render();
+  },
+  /* Van volgorde afwijken zonder tien keer op "omhoog" te tikken */
+  bovenaan(i){
+    const a=DB.d.active.entries;
+    a.unshift(a.splice(i,1)[0]);
+    DB.save(); Sheet.close(); render();
   },
   delEx(i){ DB.d.active.entries.splice(i,1); DB.save(); Sheet.close(); render(); },
 
@@ -1958,12 +2177,19 @@ const Tips={
       const piek=Math.max(...e.map(x=>x.v));
       const piekDatum=e.filter(x=>x.v>=piek*0.9995)[0].d;
 
+      // Meten doen we met het geschatte 1RM (dat vergelijkt 80×8 eerlijk met 90×5),
+      // maar we vertéllen het in de sets die hij echt heeft gedaan.
+      const zwaarste=r=>{ let b={w:0,r:0};
+        for(const d of h){ if(r && d.date<r) continue;
+          for(const s of d.sets) if((s.w||0)>b.w) b={w:s.w,r:s.r}; }
+        return b; };
       if(vNu>vEerder*1.02){
+        const nu3=zwaarste(nu[0].d);
         if(groeit++<2) add("good","Groeit",`${exName(id)} loopt goed`,
-          `Je geschatte 1RM ging van <b class="num">${nf(Math.round(vEerder))}</b> naar <b class="num">${nf(Math.round(vNu))} kg</b>.`,
+          `Je zwaarste set is nu <b class="num">${nf(nu3.w)} kg × ${nu3.r}</b>, en je gaat er nog steeds op vooruit.`,
           `Blijf op dit spoor. Voeg volgende keer 2,5 kg toe óf één herhaling per set — niet allebei tegelijk.`,1);
       } else if(vNu<=vEerder*1.005){
-        stil.push({id,piek,nu:vNu,wkn:Math.max(1,Math.round(daysAgo(piekDatum)/7)),
+        stil.push({id,zwaarst:zwaarste(),wkn:Math.max(1,Math.round(daysAgo(piekDatum)/7)),
                    reps:this.vaakstReps(h)});
       }
     }
@@ -1971,7 +2197,7 @@ const Tips={
     for(const s of stil.slice(0,2)){
       const laag = s.reps>=8;
       add("bad","Stilstand",`${exName(s.id)} staat stil`,
-        `Je beste geschatte 1RM is <b class="num">${nf(Math.round(s.piek))} kg</b> en daar sta je nu <b class="num">${s.wkn}</b> weken. De laatste sessies kom je niet verder dan <b class="num">${nf(Math.round(s.nu))} kg</b>.`,
+        `Je zwaarste set blijft <b class="num">${nf(s.zwaarst.w)} kg × ${s.zwaarst.r}</b>, en daar sta je nu <b class="num">${s.wkn}</b> weken. De laatste sessies kom je daar niet meer boven.`,
         `Verander één ding tegelijk, niet alles: ${laag?`ga van ${s.reps} herhalingen naar 4–6 zware`:`ga van ${s.reps} herhalingen naar 8–12 met minder gewicht`}, óf zet er één werkset per training bij, óf neem eerst een rustige week. Geef elke aanpassing drie weken voordat je oordeelt.`,3);
     }
     if(stil.length>2)
@@ -2154,6 +2380,9 @@ const Meer={
       <div class="field"><label>Soort beweging</label><select class="ctrl" id="eCat">
         ${[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"],["cardio","Cardio"]]
           .map(([k,l])=>`<option value="${k}"${e.cat===k?" selected":""}>${l}</option>`).join("")}</select></div>
+      <div class="switch"><div class="sw-main"><b>Niet voorstellen</b>
+        <span>De app laat deze oefening weg uit het trainingsvoorstel. Je kunt hem zelf altijd nog kiezen.</span></div>
+        <button class="toggle ${e.nietVoorstellen?"on":""}" type="button" onclick="Meer.togVoorstel('${id}',this)"><i></i></button></div>
       <button class="btn primary wide" type="button" onclick="Meer.exUpdate('${id}')">Opslaan</button>
       <button class="btn wide" type="button" onclick="Sheet.close();go('oefening','${id}')">Voortgang bekijken</button>
       <button class="btn danger wide" type="button" onclick="Meer.exArch('${id}')">Uit lijst halen</button>
@@ -2165,6 +2394,12 @@ const Meer={
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
   exArch(id){ exById(id).arch=true; DB.save(); Sheet.close(); toast("Verborgen"); render(); },
+  togVoorstel(id,btn){
+    const e=exById(id);
+    e.nietVoorstellen=!e.nietVoorstellen;
+    btn.classList.toggle("on",!!e.nietVoorstellen);
+    DB.save();
+  },
 
   /* ---- Schema's ---- */
   routineList(){
@@ -2969,7 +3204,7 @@ async function zoekUpdate(){
   try{
     const r=await fetch("index.html?v="+Date.now(),{cache:"no-store"});
     const t=await r.text();
-    const m=t.match(/const VERSIE="([^"]+)"/);
+    const m=t.match(/const VERSIE="17 aug 2026 - 17:40"]+)"/);
     if(m && m[1]!==VERSIE) $("#updateBar").classList.add("on");
   }catch(e){}
 }
