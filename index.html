@@ -465,7 +465,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="18 aug 2026 - 11:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="18 aug 2026 - 11:50";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1514,7 +1514,7 @@ const Train={
     // 1. wat heb je gedaan
     const groepen=Log.spiergroepen(a);
     const wat = groepen.length ? groepen.slice(0,3).join(", ").replace(/,([^,]*)$/," en$1") : "cardio";
-    zinnen.push(`Je trainde <b>${esc(wat)}</b> in ${min} minuten: ${st.sets} werksets over ${st.oef} ${st.oef===1?"oefening":"oefeningen"}.`);
+    zinnen.push(`Je trainde <b>${esc(wat)}</b> in ${min} minuten: ${st.sets} ${st.sets===1?"werkset":"werksets"} over ${st.oef} ${st.oef===1?"oefening":"oefeningen"}.`);
 
     // 2. je zwaarste set van vandaag
     const top=Log.hoofdoefening(a);
@@ -1640,11 +1640,17 @@ const Train={
     if(uitPlak.min && (!a.start || (a.end-a.start)/60000 < 2)) a.start=a.end-uitPlak.min*60000;
     a.entries=a.entries.filter(e=>e.sets.some(s=>s.done));
     a.entries.forEach(e=>e.sets=e.sets.filter(s=>s.done));
+
+    // De samenvatting bij de workout bewaren, zodat je hem later kunt teruglezen.
+    // Pas hier berekend: nu staan alleen de sets erin die je echt hebt afgevinkt.
+    const tekst=this.samenvatting(a).map(z=>z.replace(/<[^>]+>/g,"")).join("\n");
+    a.notes=[a.notes,tekst].filter(Boolean).join("\n\n");
+
     DB.d.sessions.push(a);
     if(a.routineId){ const r=DB.d.routines.find(x=>x.id===a.routineId); if(r) r.last=a.date; }
     DB.d.active=null; DB.save(); Sheet.close();
     clearInterval(this._iv);
-    toast("Training opgeslagen"); go("log");
+    toast("Workout opgeslagen"); go("log");
   }
 };
 
@@ -1801,7 +1807,7 @@ const Log={
         ${s.kcal?`<div class="tile"><div class="k">Verbrand</div><div class="v">${s.kcal}</div><div class="u">kcal</div></div>`:""}
       </div>`:""}
       ${Inspanning.kaart(s)}
-      ${s.notes?`<div class="card card-pad"><p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${esc(s.notes)}</p></div>`:""}
+      ${s.notes?`<div class="card card-pad"><p style="font-size:14.5px;line-height:1.6;color:var(--ink-2);white-space:pre-wrap">${esc(s.notes)}</p></div>`:""}
       ${s.entries.map((e,i)=>{
         const ex=exById(e.exId)||{name:"?",groep:"?"};
         return `<div class="ex">
