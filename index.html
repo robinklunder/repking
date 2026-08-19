@@ -497,7 +497,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="17 aug 2026 - 19:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="18 aug 2026 - 09:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1416,7 +1416,7 @@ const Train={
     h+=a.entries.map((e,i)=>this.exCard(e,i,a)).join("");
     h+=`<button class="btn wide" type="button" onclick="Train.pickExercise()">+ Oefening toevoegen</button>
         <div class="row"><button class="btn ghost wide" type="button" onclick="Train.notes()">Notitie</button>
-        <button class="btn ghost wide" type="button" onclick="Train.cancel()">Training annuleren</button></div>`;
+        <button class="btn ghost wide" type="button" onclick="Train.cancel()">Workout annuleren</button></div>`;
     V.innerHTML=h;
     clearInterval(this._iv);
     this._iv=setInterval(()=>{ if(DB.d.active&&page==="train"){
@@ -1450,7 +1450,6 @@ const Train={
       <div class="ex-foot">
         <button class="btn sm wide" type="button" onclick="Train.addSet(${i})">+ Set</button>
         <button class="btn sm ghost" type="button" onclick="Train.addSet(${i},'warmup')">+ Opwarm</button>
-        ${!cardio?`<button class="btn sm ghost" type="button" onclick="Train.plateCalc(${i})">Platen</button>`:""}
       </div>
     </div>`;
   },
@@ -1509,8 +1508,13 @@ const Train={
   addSet(i,type){
     const e=DB.d.active.entries[i];
     const last=e.sets.filter(s=>s.t!=="warmup").slice(-1)[0];
-    e.sets.push({w:type==="warmup"?null:(last?last.w:null),r:type==="warmup"?null:(last?last.r:null),
-                 rpe:null,t:type||"work",done:false});
+    const nieuw={w:type==="warmup"?null:(last?last.w:null),r:type==="warmup"?null:(last?last.r:null),
+                 rpe:null,t:type||"work",done:false};
+    if(type==="warmup"){
+      // Opwarmsets horen vóór je werksets: invoegen achter de opwarmsets die er al staan
+      let k=0; while(k<e.sets.length && e.sets[k].t==="warmup") k++;
+      e.sets.splice(k,0,nieuw);
+    } else e.sets.push(nieuw);
     DB.save(); render();
   },
   setMenu(i,j){
@@ -1528,8 +1532,6 @@ const Train={
     Sheet.open(exName(e.exId),`
       <div class="field"><label>Notitie bij deze oefening</label>
         <input class="ctrl" id="exNote" value="${esc(e.note||"")}" placeholder="bijv. stoel op 4, langzaam zakken"></div>
-      <div class="field"><label>Rusttijd (seconden)</label>
-        <input class="ctrl num" id="exRest" inputmode="numeric" value="${e.rest||""}" placeholder="${S().rest} (standaard)"></div>
       <button class="btn primary wide" type="button" onclick="Train.exSave(${i})">Opslaan</button>
       <div class="hr"></div>
       <button class="btn primary wide" type="button" onclick="Train.bovenaan(${i})">Deze nu doen</button>
@@ -1544,7 +1546,6 @@ const Train={
   exSave(i){
     const e=DB.d.active.entries[i];
     e.note=$("#exNote").value.trim();
-    e.rest=parseInt($("#exRest").value,10)||null;
     DB.save(); Sheet.close(); render();
   },
   move(i,d){
@@ -1571,41 +1572,8 @@ const Train={
       <textarea class="ctrl" id="sNote" placeholder="Hoe voelde het? Slaap, energie, blessures…">${esc(DB.d.active.notes||"")}</textarea>
       <button class="btn primary wide" type="button" onclick="DB.d.active.notes=$('#sNote').value;DB.save();Sheet.close();toast('Notitie opgeslagen')">Opslaan</button>`);
   },
-  plateCalc(i){
-    const e=DB.d.active.entries[i];
-    const last=e.sets.filter(s=>s.w).slice(-1)[0];
-    Sheet.open("Platen per kant",`
-      <div class="field"><label>Totaalgewicht (kg)</label>
-        <input class="ctrl num" id="pcW" inputmode="decimal" value="${last?last.w:""}" oninput="Train.pcDraw()"></div>
-      <div class="field"><label>Stang (kg)</label>
-        <input class="ctrl num" id="pcB" inputmode="decimal" value="${S().bar}" oninput="Train.pcDraw()"></div>
-      <div id="pcOut"></div>`,()=>this.pcDraw());
-  },
-  pcDraw(){
-    const PC={25:"#C8332A",20:"#1F5FA8",15:"#E2B33C",10:"#2E8B57",5:"#E9EAEC",2.5:"#C8332A",1.25:"#B9BEC6",0.5:"#B9BEC6"};
-    const total=parseFloat(String($("#pcW").value).replace(",","."))||0;
-    const bar=parseFloat(String($("#pcB").value).replace(",","."))||0;
-    let side=(total-bar)/2, out=[];
-    if(side<=0){ $("#pcOut").innerHTML=`<p class="mut">Alleen de stang${side<0?" — dit gewicht past niet":""}.</p>`; return; }
-    let rest=side;
-    for(const p of S().plates.slice().sort((a,b)=>b-a)){
-      while(rest>=p-0.001){ out.push(p); rest=Math.round((rest-p)*100)/100; }
-    }
-    const maxP=Math.max(...out,25);
-    $("#pcOut").innerHTML=`
-      <div class="plates">
-        <div class="bar"></div>
-        ${out.map(p=>{
-          const hgt=34+(p/maxP)*44, licht=p===5||p===1.25||p===0.5;
-          return `<div class="plate ${licht?"light":""}" style="height:${hgt}px;background:${PC[p]||"#7A828E"}">${p}</div>`;
-        }).join("")}
-        <div class="bar" style="max-width:24px"></div>
-      </div>
-      <p class="mut" style="text-align:center">Per kant: <b class="num" style="color:var(--ink)">${out.map(nf).join(" + ")||"–"}</b> = ${nf(side)} kg${rest>0.01?` <span style="color:var(--bad)">(${nf(rest)} kg past niet)</span>`:""}</p>`;
-  },
-
   async cancel(){
-    if(await ask("Training annuleren?","Alles wat je deze training hebt gelogd gaat weg.","Annuleren",true)){
+    if(await ask("Workout annuleren?","Alles wat je in deze workout hebt gelogd gaat weg.","Bevestigen",true)){
       DB.d.active=null; DB.save(); render();
     }
   },
@@ -1759,15 +1727,15 @@ const Log={
           <div class="list">`+list.map(s=>{
             const st=sessionStats(s);
             const top=this.hoofdoefening(s);
-            // Een naam als "Training" zegt niets; dan liever de zwaarste oefening
-            const vaag=/^(training|ge[iï]mporteerd)$/i.test((s.name||"").trim());
-            const titel = vaag && top
-              ? top.naam + (st.oef>1 ? ` +${st.oef-1}` : "")
-              : (s.name||"Training");
+            const titel=this.groepNaam(s);
+            // Een eigen naam als "Push A" blijft zichtbaar; "Training" en
+            // "Geïmporteerd" zeggen niets en laten we weg.
+            const vaag=/^(training|ge[iï]mporteerd|workout)$/i.test((s.name||"").trim());
+            const eigenNaam = vaag ? "" : (s.name||"");
             const records=prs[s.id]||0;
             return `<button class="li" type="button" onclick="go('sessie','${s.id}')">
               <div class="li-main"><b>${esc(titel)}</b>
-                <span>${dShort(s.date)} · ${st.oef} ${st.oef===1?"oefening":"oefeningen"} · ${st.sets} sets</span>
+                <span>${dShort(s.date)}${eigenNaam?" · "+esc(eigenNaam):""} · ${st.oef} ${st.oef===1?"oefening":"oefeningen"} · ${st.sets} sets</span>
                 ${top&&top.w?`<span class="num" style="color:var(--ink-2);font-size:12.5px">zwaarst: ${esc(top.naam)} ${setTekst(top.w,top.r,true)}</span>`:""}
               </div>
               ${records?`<span class="chip good">${records>1?records+"× ":""}PR</span>`:""}
@@ -1775,6 +1743,28 @@ const Log={
           }).join("")+`</div>`;
         }).join("");
       })()}`;
+  },
+
+  /* Waar ging deze workout over? De spiergroepen met de meeste werksets,
+     want "Borst & Triceps" zegt meer dan "Geïmporteerd". */
+  spiergroepen(s){
+    const tel={};
+    for(const e of s.entries){
+      const ex=exById(e.exId); if(!ex||ex.groep==="Cardio") continue;
+      const n=e.sets.filter(isWork).length;
+      if(n) tel[ex.groep]=(tel[ex.groep]||0)+n;
+    }
+    return Object.entries(tel).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
+  },
+  groepNaam(s){
+    const g=this.spiergroepen(s);
+    if(!g.length){
+      // alleen cardio gedaan? dan die naam gebruiken
+      const c=s.entries.map(e=>exById(e.exId)).find(x=>x&&x.groep==="Cardio");
+      return c?c.name:"Workout";
+    }
+    if(g.length<=2) return g.join(" & ");
+    return g.slice(0,2).join(" & ")+" +"+(g.length-2);
   },
 
   /* De zwaarste oefening van een training, op geschat 1RM. Dat is wat je
@@ -1795,7 +1785,7 @@ const Log={
     if(!s){ go("log"); return; }
     const st=sessionStats(s);
     const b=this.bewerk;
-    head(esc(s.name||"Training"),dLong(s.date),
+    head(this.groepNaam(s),dLong(s.date),
       `<div style="display:flex;gap:6px">
          <button class="btn sm ghost" type="button" onclick="go('log')">Terug</button>
          <button class="btn sm ${b?"primary":""}" type="button" onclick="Log.togBewerk()">${b?"Klaar":"Bewerk"}</button>
@@ -2354,7 +2344,7 @@ const Meer={
       <div class="list">
         <button class="li" type="button" onclick="Meer.strava()"><div class="li-main"><b>Strava inlezen</b><span>Hartslag, calorie&euml;n en inspanning uit je export</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.horloge()"><div class="li-main"><b>Apple Watch koppelen</b><span>Cijfers per training erbij zetten</span></div><div class="chev"></div></button>
-        <button class="li" type="button" onclick="Meer.settings()"><div class="li-main"><b>Instellingen</b><span>Rusttijd, RPE, geluid, stang</span></div><div class="chev"></div></button>
+        <button class="li" type="button" onclick="Meer.settings()"><div class="li-main"><b>Instellingen</b><span>Rusttijd, geluid, thema</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.about()"><div class="li-main"><b>Over deze app</b><span>Hoe het werkt, waar je data staat</span></div><div class="chev"></div></button>
       </div>
       ${!storageOK?`<div class="warnbox">Opslaan werkt niet in deze browser. Exporteer je data voordat je afsluit.</div>`:""}`;
@@ -2448,7 +2438,7 @@ const Meer={
         <input class="ctrl" id="rName" value="${esc(r.name)}" placeholder="bijv. Push A" onchange="Meer.rSetName('${id}',this.value)"></div>
       ${r.items.length?`<div class="list">`+r.items.map((it,i)=>
         `<div class="li"><div class="li-main"><b>${esc(exName(it.exId))}</b>
-           <span>${it.sets} sets · rust ${it.rest||S().rest}s</span></div>
+           <span>${it.sets} sets</span></div>
          <button class="btn sm ghost" type="button" onclick="Meer.rSets('${id}',${i},-1)">−</button>
          <button class="btn sm ghost" type="button" onclick="Meer.rSets('${id}',${i},1)">+</button>
          <button class="btn sm danger" type="button" onclick="Meer.rDel('${id}',${i})">✕</button></div>`).join("")+`</div>`:""}
@@ -2483,8 +2473,7 @@ const Meer={
         <input class="ctrl num" id="stRest" inputmode="numeric" value="${s.rest}"></div>
       <div class="field"><label>Rust na opwarmset (seconden)</label>
         <input class="ctrl num" id="stRestW" inputmode="numeric" value="${s.restWarm}"></div>
-      <div class="field"><label>Gewicht van je stang (kg)</label>
-        <input class="ctrl num" id="stBar" inputmode="decimal" value="${s.bar}"></div>
+
       <div class="hr"></div>
 
       <div class="switch"><div class="sw-main"><b>Piep bij einde rust</b>
@@ -2507,7 +2496,6 @@ const Meer={
     const s=S();
     s.rest=clamp(parseInt($("#stRest").value,10)||120,0,900);
     s.restWarm=clamp(parseInt($("#stRestW").value,10)||60,0,900);
-    s.bar=parseFloat(String($("#stBar").value).replace(",","."))||20;
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
 
