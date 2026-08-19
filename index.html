@@ -218,26 +218,6 @@ main > *{flex:0 0 auto}
 .prev-hint{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
 
 /* Rusttimer-balk */
-/* Rusttimer: staat geparkeerd tot je een set afvinkt. Echt onzichtbaar maken,
-   niet alleen wegschuiven — anders komt hij over de tabbalk heen. */
-.restbar{
-  position:fixed;left:0;right:0;bottom:calc(58px + var(--safe-b));z-index:55;
-  background:var(--accent);color:var(--accent-ink);
-  transform:translateY(120%);opacity:0;pointer-events:none;visibility:hidden;
-  transition:transform .28s cubic-bezier(.2,.9,.3,1),opacity .2s,visibility 0s .28s;
-}
-.restbar.on{transform:translateY(0);opacity:1;pointer-events:auto;visibility:visible;
-  transition:transform .28s cubic-bezier(.2,.9,.3,1),opacity .2s,visibility 0s 0s}
-.restbar-inner{max-width:600px;margin:0 auto;display:flex;align-items:center;gap:10px;padding:9px 14px}
-.restbar .t{font-family:var(--mono);font-size:26px;font-weight:750;letter-spacing:-.04em;min-width:74px}
-.restbar .lbl{flex:1;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;opacity:.8}
-.restbar button{
-  min-height:34px;padding:0 11px;border-radius:9px;font-size:13.5px;font-weight:700;
-  background:color-mix(in srgb, var(--accent-ink) 16%, transparent);color:var(--accent-ink);
-}
-.restprog{height:3px;background:color-mix(in srgb, var(--accent-ink) 22%, transparent)}
-.restprog i{display:block;height:100%;background:var(--accent-ink);transition:width .95s linear}
-
 /* ============================================================
    LIJSTEN
    ============================================================ */
@@ -378,18 +358,6 @@ canvas{display:block;width:100%;height:100%}
   <nav class="tabbar"><div class="tabbar-inner" id="tabs"></div></nav>
 </div>
 
-<div class="restbar" id="restbar">
-  <div class="restprog"><i id="restProg" style="width:0%"></i></div>
-  <div class="restbar-inner">
-    <div class="t num" id="restT">0:00</div>
-    <div class="lbl" id="restLbl">Rust</div>
-    <button type="button" onclick="Rest.add(-30)">−30</button>
-    <button type="button" onclick="Rest.add(30)">+30</button>
-    <button type="button" onclick="Rest.stop()">Klaar</button>
-  </div>
-</div>
-
-
 <div class="scrim" id="scrim" onclick="Sheet.close()"></div>
 <div class="sheet" id="sheet" role="dialog" aria-modal="true">
   <div class="sheet-grip"></div>
@@ -497,7 +465,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="18 aug 2026 - 09:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="18 aug 2026 - 11:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -571,41 +539,6 @@ function ask(title,text,okLabel="Ja",gevaar=false){
   });
 }
 function _ans(v){ Sheet.close(); if(_askRes){ _askRes(v); _askRes=null; } }
-
-/* Korte piep — iOS heeft een aanraking nodig om audio te ontgrendelen */
-let AC=null;
-function unlockAudio(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(AC&&AC.state==="suspended") AC.resume(); }
-function beep(n=2){
-  if(!S().geluid||!AC) return;
-  for(let i=0;i<n;i++){
-    const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime+i*0.22;
-    o.frequency.setValueAtTime(i===n-1?1046:784,t); o.type="sine";
-    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.35,t+0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
-    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.2);
-  }
-  if(navigator.vibrate) try{ navigator.vibrate([120,60,120]); }catch(e){}
-}
-
-/* ---------- 5. Rusttimer ------------------------------------------------ */
-const Rest={
-  end:0,total:0,iv:null,
-  start(sec){
-    this.total=sec; this.end=Date.now()+sec*1000;
-    $("#restbar").classList.add("on");
-    clearInterval(this.iv); this.iv=setInterval(()=>this.tick(),250); this.tick();
-  },
-  add(n){ if(!this.iv) return; this.end+=n*1000; this.total+=n; this.tick(); },
-  stop(){ clearInterval(this.iv); this.iv=null; $("#restbar").classList.remove("on"); },
-  tick(){
-    const left=Math.round((this.end-Date.now())/1000);
-    $("#restT").textContent=mmss(left);
-    $("#restProg").style.width=clamp(100-(left/this.total*100),0,100)+"%";
-    if(left<=0 && !this._rang){ this._rang=true; beep(3); $("#restLbl").textContent="Ga!"; }
-    if(left>0){ this._rang=false; $("#restLbl").textContent="Rust"; }
-    if(left<=-45) this.stop();
-  }
-};
 
 /* ---------- 6. Analyse: records, volume, statistieken -------------------- */
 function allSessions(){ return DB.d.sessions.slice().sort((a,b)=>a.date<b.date?1:-1); }
@@ -1305,7 +1238,6 @@ const Advies={
 
   start(){
     const v=this.voorstel(); if(!v) return;
-    unlockAudio();
     DB.d.active={id:uid(),date:today(),start:Date.now(),end:null,
       name:v.dag.naam,routineId:null,notes:"",
       entries:v.oefeningen.map(o=>({exId:o.id,note:"",rest:null,
@@ -1384,7 +1316,6 @@ const Train={
   },
 
   start(routineId){
-    unlockAudio();
     const r=routineId?DB.d.routines.find(x=>x.id===routineId):null;
     DB.d.active={
       id:uid(),date:today(),start:Date.now(),end:null,
@@ -1396,7 +1327,6 @@ const Train={
   },
   repeat(sessId){
     const s=DB.d.sessions.find(x=>x.id===sessId); if(!s) return;
-    unlockAudio();
     DB.d.active={id:uid(),date:today(),start:Date.now(),end:null,name:s.name||"Training",
       routineId:s.routineId||null,notes:"",
       entries:s.entries.map(e=>({exId:e.exId,note:"",rest:e.rest||null,
@@ -1477,7 +1407,6 @@ const Train={
     DB.save();
   },
   toggle(i,j){
-    unlockAudio();
     const a=DB.d.active, e=a.entries[i], s=e.sets[j];
     if(!s.done){
       // leeg? neem waardes van de vorige set of van de vorige training over
@@ -1488,8 +1417,6 @@ const Train={
                if(h&&h.sets[j]){ s.w=h.sets[j].w; s.r=h.sets[j].r; } }
       }
       s.done=true; s.ts=Date.now();
-      const rustT = s.t==="warmup" ? S().restWarm : (e.rest||S().rest);
-      if(rustT>0) Rest.start(rustT);
       const p=this.checkPR(e.exId,s,a.id);
       render();
       if(p) toast(p);
@@ -1577,6 +1504,71 @@ const Train={
       DB.d.active=null; DB.save(); render();
     }
   },
+  /* Een geschreven terugblik op de workout. Cijfers in tegels lees je niet,
+     een paar zinnen wel — en records horen benoemd te worden. */
+  samenvatting(a){
+    const st=sessionStats(a);
+    const min=Math.round((Date.now()-a.start)/60000);
+    const zinnen=[];
+
+    // 1. wat heb je gedaan
+    const groepen=Log.spiergroepen(a);
+    const wat = groepen.length ? groepen.slice(0,3).join(", ").replace(/,([^,]*)$/," en$1") : "cardio";
+    zinnen.push(`Je trainde <b>${esc(wat)}</b> in ${min} minuten: ${st.sets} werksets over ${st.oef} ${st.oef===1?"oefening":"oefeningen"}.`);
+
+    // 2. je zwaarste set van vandaag
+    const top=Log.hoofdoefening(a);
+    if(top && top.w) zinnen.push(`Je zwaarste set was <b>${setTekst(top.w,top.r,true)}</b> bij ${esc(top.naam)}.`);
+
+    // 3. records
+    const prs=[];
+    for(const e of a.entries){
+      const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
+      const w=e.sets.filter(isWork); if(!w.length) continue;
+      const b=bestOf(w);
+      if(b.e1>pr.e1+0.05) prs.push({naam:exName(e.exId), w:b.w, r:b.r, vorig:pr.zwaarst});
+    }
+    if(prs.length){
+      const lijst=prs.map(p=>
+        p.w>p.vorig
+          ? `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true)} — zwaarder dan je ooit deed (was ${nf(p.vorig)} kg)`
+          : `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true)} — je beste tot nu toe op deze oefening`
+      );
+      zinnen.push((prs.length===1?"Eén record":`${prs.length} records`)+": "+lijst.join(", en ")+".");
+    } else {
+      zinnen.push("Geen records vandaag — die vallen ook niet elke keer, en dat hoeft niet.");
+    }
+
+    // 4. hoe zwaar vergeleken met je gewone workouts
+    const v=Inspanning.vergelijk(a);
+    if(v){
+      const p=v.index-100;
+      if(p>=8)      zinnen.push(`Deze workout was <b>${p}% zwaarder</b> dan je vorige ${v.basis}. Houd je herstel in de gaten.`);
+      else if(p<=-8)zinnen.push(`Deze workout was <b>${Math.abs(p)}% lichter</b> dan je vorige ${v.basis} — prima als het een rustige dag mocht zijn.`);
+      else          zinnen.push(`Qua zwaarte zat je op je gewone niveau.`);
+    }
+
+    // 5. heb je een groep aangeraakt die lang stil lag?
+    const ingehaald=[];
+    for(const g of groepen){
+      let dagen=999;
+      for(const s of DB.d.sessions){
+        if(s.id===a.id) continue;
+        const d=daysAgo(s.date); if(d<0) continue;
+        for(const e of s.entries){
+          const ex=exById(e.exId);
+          if(ex&&ex.groep===g&&e.sets.filter(isWork).length&&d<dagen) dagen=d;
+        }
+      }
+      if(dagen>=14) ingehaald.push({g,dagen});
+    }
+    if(ingehaald.length){
+      const t=ingehaald.map(x=>`<b>${esc(x.g)}</b>${x.dagen>900?"":` (${x.dagen} dagen geleden)`}`).join(" en ");
+      zinnen.push(`Mooi: je pakte ${t} weer op, na een lange stilte.`);
+    }
+    return zinnen;
+  },
+
   finish(){
     const a=DB.d.active, st=sessionStats(a);
     if(!st.sets){
@@ -1590,16 +1582,21 @@ const Train={
       const b=bestOf(e.sets.filter(isWork));
       if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true)}`);
     }
-    Sheet.open("Training afronden",`
+    Sheet.open("Workout afronden",`
       <div class="tiles">
         <div class="tile"><div class="k">Duur</div><div class="v">${hhmm(Math.round((Date.now()-a.start)/1000))}</div><div class="u">&nbsp;</div></div>
         <div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>
         <div class="tile"><div class="k">Sets</div><div class="v">${st.sets}</div><div class="u">werksets</div></div>
         <div class="tile"><div class="k">Reps</div><div class="v">${st.reps}</div><div class="u">totaal</div></div>
       </div>
-      ${prs.length?`<div class="card pr-pop"><div class="card-head"><div class="card-title">Nieuwe records</div><span class="chip good">${prs.length}</span></div>
-        <div style="padding:11px 14px;display:flex;flex-direction:column;gap:6px">${prs.map(p=>`<div style="font-size:14px">${esc(p)}</div>`).join("")}</div></div>`:""}
-      <div class="field"><label>Naam van deze training</label>
+      <div class="card${prs.length?" pr-pop":""}">
+        <div class="card-head"><div class="card-title">Zo ging het</div>
+          ${prs.length?`<span class="chip good">${prs.length}× PR</span>`:""}</div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:9px">
+          ${this.samenvatting(a).map(z=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${z}</p>`).join("")}
+        </div>
+      </div>
+      <div class="field"><label>Naam van deze workout</label>
         <input class="ctrl" id="fName" value="${esc(a.name)}"></div>
       <div class="field"><label>Notitie</label>
         <textarea class="ctrl" id="fNote" style="min-height:70px" placeholder="Hoe ging het?">${esc(a.notes||"")}</textarea></div>
@@ -1645,7 +1642,7 @@ const Train={
     a.entries.forEach(e=>e.sets=e.sets.filter(s=>s.done));
     DB.d.sessions.push(a);
     if(a.routineId){ const r=DB.d.routines.find(x=>x.id===a.routineId); if(r) r.last=a.date; }
-    DB.d.active=null; Rest.stop(); DB.save(); Sheet.close();
+    DB.d.active=null; DB.save(); Sheet.close();
     clearInterval(this._iv);
     toast("Training opgeslagen"); go("log");
   }
@@ -1838,7 +1835,7 @@ const Log={
       ${b?`
         <button class="btn wide" type="button" onclick="Log.addEx('${s.id}')">+ Oefening toevoegen</button>
         <button class="btn ghost wide" type="button" onclick="Log.meta('${s.id}')">Naam, datum en notitie</button>
-        <button class="btn danger wide" type="button" onclick="Log.del('${s.id}')">Training verwijderen</button>`
+        <button class="btn danger wide" type="button" onclick="Log.del('${s.id}')">Workout verwijderen</button>`
       :`<div class="row">
         <button class="btn ghost wide" type="button" onclick="Train.repeat('${s.id}');go('train')">Herhalen</button>
         <button class="btn danger wide" type="button" onclick="Log.del('${s.id}')">Verwijderen</button>
@@ -1908,7 +1905,7 @@ const Log={
   },
   meta(id){
     const s=this.vind(id);
-    Sheet.open("Training aanpassen",`
+    Sheet.open("Workout aanpassen",`
       <div class="field"><label>Naam</label>
         <input class="ctrl" id="mNaam" value="${esc(s.name||"")}"></div>
       <div class="field"><label>Datum</label>
@@ -1925,7 +1922,7 @@ const Log={
     DB.save(); Sheet.close(); render(); toast("Opgeslagen");
   },
   async del(id){
-    if(await ask("Training verwijderen?","Dit kan niet ongedaan worden gemaakt.","Verwijderen",true)){
+    if(await ask("Workout verwijderen?","Dit kan niet ongedaan worden gemaakt.","Verwijderen",true)){
       DB.d.sessions=DB.d.sessions.filter(x=>x.id!==id); DB.save(); go("log"); toast("Verwijderd");
     }
   }
@@ -2344,7 +2341,7 @@ const Meer={
       <div class="list">
         <button class="li" type="button" onclick="Meer.strava()"><div class="li-main"><b>Strava inlezen</b><span>Hartslag, calorie&euml;n en inspanning uit je export</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.horloge()"><div class="li-main"><b>Apple Watch koppelen</b><span>Cijfers per training erbij zetten</span></div><div class="chev"></div></button>
-        <button class="li" type="button" onclick="Meer.settings()"><div class="li-main"><b>Instellingen</b><span>Rusttijd, geluid, thema</span></div><div class="chev"></div></button>
+        <button class="li" type="button" onclick="Meer.settings()"><div class="li-main"><b>Instellingen</b><span>Thema en oefeningen</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.about()"><div class="li-main"><b>Over deze app</b><span>Hoe het werkt, waar je data staat</span></div><div class="chev"></div></button>
       </div>
       ${!storageOK?`<div class="warnbox">Opslaan werkt niet in deze browser. Exporteer je data voordat je afsluit.</div>`:""}`;
@@ -2469,17 +2466,7 @@ const Meer={
   settings(){
     const s=S();
     Sheet.open("Instellingen",`
-      <div class="field"><label>Standaard rusttijd (seconden)</label>
-        <input class="ctrl num" id="stRest" inputmode="numeric" value="${s.rest}"></div>
-      <div class="field"><label>Rust na opwarmset (seconden)</label>
-        <input class="ctrl num" id="stRestW" inputmode="numeric" value="${s.restWarm}"></div>
 
-      <div class="hr"></div>
-
-      <div class="switch"><div class="sw-main"><b>Piep bij einde rust</b>
-        <span>Werkt alleen als je geluid aan staat en je het scherm niet vergrendelt.</span></div>
-        <button class="toggle ${s.geluid?"on":""}" type="button" onclick="Meer.tog(this,'geluid')"><i></i></button></div>
-      <div class="hr"></div>
       <div class="field"><label>Thema</label>
         <div class="seg">${[["auto","Systeem"],["light","Licht"],["dark","Donker"]].map(([k,l])=>
           `<button type="button" class="${themaNu()===k?"on":""}" onclick="Meer.theme('${k}',this)">${l}</button>`).join("")}</div></div>
@@ -2494,8 +2481,7 @@ const Meer={
   },
   stSave(){
     const s=S();
-    s.rest=clamp(parseInt($("#stRest").value,10)||120,0,900);
-    s.restWarm=clamp(parseInt($("#stRestW").value,10)||60,0,900);
+
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
 
@@ -3199,8 +3185,6 @@ function applyTheme(){
 $("#view").addEventListener("scroll",()=>{
   $("#topbar").classList.toggle("stuck",$("#view").scrollTop>4);
 },{passive:true});
-document.addEventListener("touchstart",unlockAudio,{once:true,passive:true});
-document.addEventListener("click",unlockAudio,{once:true});
 window.addEventListener("beforeunload",()=>{ if(DB.d) DB.save(); });
 
 /* Offline werken. Alleen van toepassing op de zelfgehoste versie; staat het
