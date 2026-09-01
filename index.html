@@ -206,6 +206,13 @@ main > *{flex:0 0 auto}
 .inp::placeholder{color:var(--ink-3);font-weight:500;opacity:.65}
 .inp:focus{outline:none;border-color:var(--accent);background:var(--surface);box-shadow:0 0 0 3px var(--accent-soft)}
 .inp.rpe{font-size:15px}
+/* Gewichtsveld met een knop voor eigen lichaamsgewicht: bij dips en pull-ups
+   is een leeg veld dubbelzinnig — "BW" zegt precies wat je bedoelde. */
+.wcel{display:flex;gap:4px;min-width:0}
+.wcel .inp{flex:1;min-width:0}
+.bwknop{width:38px;flex:none;border-radius:10px;border:1px solid var(--line);
+  background:var(--surface-2);color:var(--ink-3);font-size:12px;font-weight:750;letter-spacing:.03em}
+.bwknop.on{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .tick{
   width:46px;height:46px;border-radius:10px;display:grid;place-items:center;
   background:var(--surface-3);color:var(--ink-3);border:1px solid transparent;
@@ -409,9 +416,10 @@ const nf = n => (Math.round(n*100)/100).toLocaleString("nl-NL");
 const kf = n => n>=10000 ? Math.round(n/1000)+"k" : nf(Math.round(n));
 
 /* Robin leest een set als "5 x 80 kg": eerst het aantal, dan het gewicht. */
-function setTekst(w,r,metEenheid){
+function setTekst(w,r,metEenheid,bw){
   if(!r) return "–";
-  if(!w) return r+" ×";
+  if(bw) return w ? r+" × BW +"+nf(w)+(metEenheid?" kg":"") : r+" × BW";
+  if(!w) return r+" × BW";
   return r+" × "+nf(w)+(metEenheid?" kg":"");
 }
 
@@ -465,7 +473,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="18 aug 2026 - 11:50";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="19 aug 2026 - 15:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1370,7 +1378,7 @@ const Train={
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
           <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>
-          ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>setTekst(s.w,s.r)).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
+          ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>setTekst(s.w,s.r,false,s.bw)).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
           ${pr.e1?`<span class="prev-hint">· record ${nf(Math.round(pr.e1))}kg e1RM</span>`:""}</div>
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
@@ -1393,13 +1401,26 @@ const Train={
         ? `<input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Minuten">
            <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Kilometers">`
         : `<input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
-           <input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">`}
+           <div class="wcel">
+             <input class="inp num" inputmode="decimal" value="${s.w??""}"
+                    placeholder="${s.bw?"extra":(vs?(vs.bw?"BW":nf(vs.w||0)):"–")}"
+                    onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">
+             <button class="bwknop ${s.bw?"on":""}" type="button" onclick="Train.togBw(${i},${j})"
+                     title="Eigen lichaamsgewicht">BW</button>
+           </div>`}
       ${cardio?`<input class="inp num" inputmode="numeric" value="${s.kcal??""}" placeholder="–" onchange="Train.setVal(${i},${j},'kcal',this.value)" aria-label="Calorieën">`:""}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
     </div>`;
   },
 
+  /* Eigen lichaamsgewicht aan of uit voor deze set */
+  togBw(i,j){
+    const s=DB.d.active.entries[i].sets[j];
+    s.bw=!s.bw;
+    if(!s.bw && s.w===0) s.w=null;
+    DB.save(); render();
+  },
   setVal(i,j,k,v){
     const s=DB.d.active.entries[i].sets[j];
     v=String(v).replace(",",".").trim();
@@ -1412,9 +1433,9 @@ const Train={
       // leeg? neem waardes van de vorige set of van de vorige training over
       if(s.w==null&&s.r==null){
         const prev=e.sets[j-1];
-        if(prev&&(prev.w!=null||prev.r!=null)){ s.w=prev.w; s.r=prev.r; }
+        if(prev&&(prev.w!=null||prev.r!=null||prev.bw)){ s.w=prev.w; s.r=prev.r; s.bw=!!prev.bw; }
         else { const h=historyFor(e.exId,a.id).slice(-1)[0];
-               if(h&&h.sets[j]){ s.w=h.sets[j].w; s.r=h.sets[j].r; } }
+               if(h&&h.sets[j]){ s.w=h.sets[j].w; s.r=h.sets[j].r; s.bw=!!h.sets[j].bw; } }
       }
       s.done=true; s.ts=Date.now();
       const p=this.checkPR(e.exId,s,a.id);
@@ -1436,7 +1457,7 @@ const Train={
     const e=DB.d.active.entries[i];
     const last=e.sets.filter(s=>s.t!=="warmup").slice(-1)[0];
     const nieuw={w:type==="warmup"?null:(last?last.w:null),r:type==="warmup"?null:(last?last.r:null),
-                 rpe:null,t:type||"work",done:false};
+                 bw:last?!!last.bw:false, rpe:null,t:type||"work",done:false};
     if(type==="warmup"){
       // Opwarmsets horen vóór je werksets: invoegen achter de opwarmsets die er al staan
       let k=0; while(k<e.sets.length && e.sets[k].t==="warmup") k++;
@@ -1828,7 +1849,7 @@ const Log={
                  :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>`}
               ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
                      onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
-                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.w!=null?nf(x.w):"–"}</span>`}
+                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.bw?(x.w?"BW+"+nf(x.w):"BW"):(x.w!=null?nf(x.w):"–")}</span>`}
               <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
