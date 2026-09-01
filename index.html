@@ -502,7 +502,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="24 aug 2026 - 14:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="24 aug 2026 - 15:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -621,6 +621,9 @@ const Interval={
   aan:false, fase:"werk", eind:0, ronde:1, iv:null,
   start(){
     unlockAudio();
+    // Begin je met een interval, dan is de workout begonnen: klok mee laten lopen
+    const a=DB.d.active;
+    if(a && a.pauzeVanaf){ a.pauzeTotaal=(a.pauzeTotaal||0)+(Date.now()-a.pauzeVanaf); a.pauzeVanaf=null; DB.save(); }
     const c=S().interval;
     this.aan=true; this.fase="werk"; this.ronde=1;
     this.eind=Date.now()+c.werk*1000;
@@ -1456,7 +1459,9 @@ const Train={
     DB.d.active={
       id:uid(),date:today(),start:Date.now(),end:null,
       soort:soort||"gym", rondes:soort==="body"?S().interval.rondes:null,
-      pauzeTotaal:0, pauzeVanaf:null,
+      // Bij een bodyworkout staat de klok stil tot je hem zelf start: je wilt
+      // eerst je oefeningen invoeren zonder dat de tijd loopt.
+      pauzeTotaal:0, pauzeVanaf:(soort==="body"?Date.now():null),
       name:r?r.name:"Training",routineId:routineId||null,notes:"",
       entries:(r?r.items:[]).map(it=>({exId:it.exId,note:"",rest:it.rest||null,
         sets:Array.from({length:it.sets||3},()=>({w:null,r:null,rpe:null,t:"work",done:false}))}))
@@ -1485,7 +1490,10 @@ const Train={
       <div class="klokkaart">
         <div class="klokrij">
           <div class="tijd num" id="klok">${mmss(Klok.verstreken())}</div>
-          <button class="btn sm ghost" type="button" onclick="Klok.pauze()">${Klok.loopt()?"Pauze":"Verder"}</button>
+          ${(()=>{ const v=Klok.verstreken(), l=Klok.loopt();
+            const label = l ? "Pauze" : (v===0 ? "Start" : "Verder");
+            return `<button class="btn sm ${(!l&&v===0)?"primary":"ghost"}" type="button"
+                      onclick="Klok.pauze()">${label}</button>`; })()}
           <button class="btn sm ${Interval.aan?"danger":""}" type="button"
             onclick="${Interval.aan?"Interval.stop()":"Train.intervalScherm()"}">${Interval.aan?"Stop":"Interval"}</button>
         </div>
@@ -1913,6 +1921,8 @@ const Train={
     a.name=$("#fName").value.trim()||"Training";
     a.notes=$("#fNote").value.trim();
     a.end=Date.now();
+    // Bij een bodyworkout telt de stopwatch, niet de tijd sinds je hem aanmaakte
+    if(a.soort==="body"){ const sec=Klok.verstreken(); a.start=a.end-sec*1000; }
     const hrGem=parseInt($("#fHr").value,10)||null;
     const hrMax=parseInt($("#fHrMax").value,10)||null;
     const kcal =parseInt($("#fKcal").value,10)||null;
