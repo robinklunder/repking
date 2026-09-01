@@ -317,6 +317,35 @@ canvas{display:block;width:100%;height:100%}
 .plate{border-radius:2px;flex:none;display:grid;place-items:center;font-size:9px;font-weight:800;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);width:13px}
 .plate.light{color:#222;text-shadow:none}
 
+/* ============================================================
+   BODYWORKOUT — stopwatch, intervaltimer en rondes
+   ============================================================ */
+.klokkaart{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow-1);overflow:hidden}
+.klokrij{display:flex;align-items:center;gap:12px;padding:16px 16px 14px}
+.klokrij .tijd{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:40px;
+  font-weight:750;letter-spacing:-.05em;line-height:1;flex:1}
+.intervalbalk{padding:12px 16px;display:flex;align-items:center;gap:12px;
+  border-top:1px solid var(--line);background:var(--surface-2)}
+.intervalbalk.werk{background:var(--accent);color:var(--accent-ink)}
+.intervalbalk.rust{background:var(--good);color:#06231C}
+.intervalbalk .t{font-family:var(--mono);font-variant-numeric:tabular-nums;
+  font-size:28px;font-weight:750;letter-spacing:-.04em;min-width:78px}
+.intervalbalk .l{flex:1;font-size:12.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.stippen{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.stippen i{width:11px;height:11px;border-radius:99px;background:var(--surface-3);
+  border:1px solid var(--line-strong);display:block}
+.stippen i.vol{background:var(--accent);border-color:transparent}
+.bodyrij{display:flex;align-items:center;gap:11px;padding:12px 13px;border-bottom:1px solid var(--line)}
+.bodyrij:last-child{border-bottom:0}
+.bodyrij .naam{flex:1;min-width:0}
+.bodyrij .naam b{display:block;font-size:15.5px;font-weight:650;letter-spacing:-.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rondeknop{width:48px;height:44px;flex:none;border-radius:11px;background:var(--accent);
+  color:var(--accent-ink);font-size:22px;font-weight:750;line-height:1}
+.rondeknop:active{filter:brightness(.9)}
+.rondeknop.klaar{background:var(--good);color:#06231C}
+
 /* Diversen */
 .hr{height:1px;background:var(--line);margin:2px 0}
 .warnbox{background:var(--bad-soft);color:var(--bad);border-radius:11px;padding:12px 13px;font-size:13.5px;line-height:1.5;font-weight:600}
@@ -473,7 +502,7 @@ function defaultExercises(){
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="19 aug 2026 - 15:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="24 aug 2026 - 14:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -499,8 +528,8 @@ const DB={
   fresh(){
     return {
       v:1,
-      settings:{unit:"kg",rest:120,restWarm:60,rpe:true,geluid:true,bar:20,
-                plates:[25,20,15,10,5,2.5,1.25],lastBackup:null},
+      settings:{unit:"kg",lastBackup:null,
+                interval:{werk:40,rust:20,rondes:5}},
       exercises:defaultExercises(),
       routines:[],
       sessions:[],
@@ -547,6 +576,77 @@ function ask(title,text,okLabel="Ja",gevaar=false){
   });
 }
 function _ans(v){ Sheet.close(); if(_askRes){ _askRes(v); _askRes=null; } }
+
+/* ---------- 5. Klok en intervaltimer (bodyworkouts) ----------------------
+   Een stopwatch die de hele workout meeloopt, en daarbovenop een optionele
+   intervaltimer voor circuits: zoveel seconden werk, zoveel rust, zoveel
+   rondes. iOS wil een aanraking voordat het geluid mag maken.            */
+let AC=null;
+function unlockAudio(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC&&AC.state==="suspended") AC.resume();
+}
+function piep(n=1,hoog){
+  if(!AC) return;
+  for(let i=0;i<n;i++){
+    const o=AC.createOscillator(), g=AC.createGain(), t=AC.currentTime+i*0.18;
+    o.frequency.setValueAtTime(hoog?1046:784,t); o.type="sine";
+    g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.4,t+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.16);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.18);
+  }
+  if(navigator.vibrate) try{ navigator.vibrate(n>1?[120,60,120]:120); }catch(e){}
+}
+
+const Klok={
+  iv:null,
+  verstreken(){
+    const a=DB.d.active; if(!a||!a.start) return 0;
+    const pauze=(a.pauzeTotaal||0)+(a.pauzeVanaf?Date.now()-a.pauzeVanaf:0);
+    return Math.max(0,Math.round((Date.now()-a.start-pauze)/1000));
+  },
+  loopt(){ const a=DB.d.active; return !!(a&&a.start&&!a.pauzeVanaf); },
+  pauze(){
+    const a=DB.d.active; if(!a) return;
+    if(a.pauzeVanaf){ a.pauzeTotaal=(a.pauzeTotaal||0)+(Date.now()-a.pauzeVanaf); a.pauzeVanaf=null; }
+    else a.pauzeVanaf=Date.now();
+    DB.save(); render();
+  },
+  tik(){ const el=$("#klok"); if(el) el.textContent=mmss(this.verstreken()); },
+  aan(){ clearInterval(this.iv); this.iv=setInterval(()=>this.tik(),500); this.tik(); },
+  uit(){ clearInterval(this.iv); this.iv=null; }
+};
+
+const Interval={
+  aan:false, fase:"werk", eind:0, ronde:1, iv:null,
+  start(){
+    unlockAudio();
+    const c=S().interval;
+    this.aan=true; this.fase="werk"; this.ronde=1;
+    this.eind=Date.now()+c.werk*1000;
+    clearInterval(this.iv); this.iv=setInterval(()=>this.tik(),200);
+    render();
+  },
+  stop(){ this.aan=false; clearInterval(this.iv); this.iv=null; render(); },
+  tik(){
+    if(!this.aan) return;
+    const over=Math.ceil((this.eind-Date.now())/1000);
+    const el=$("#intT"); if(el) el.textContent=mmss(Math.max(0,over));
+    const lb=$("#intL"); if(lb) lb.textContent=this.fase==="werk"?"Werken":"Rust";
+    const bal=$("#intBal"); if(bal) bal.className="intervalbalk "+this.fase;
+    if(over>0) return;
+    const c=S().interval;
+    if(this.fase==="werk"){
+      if(c.rust>0){ this.fase="rust"; this.eind=Date.now()+c.rust*1000; piep(1); }
+      else { this.volgendeRonde(c); }
+    } else this.volgendeRonde(c);
+  },
+  volgendeRonde(c){
+    if(this.ronde>=c.rondes){ this.aan=false; clearInterval(this.iv); this.iv=null; piep(3,true); render(); return; }
+    this.ronde++; this.fase="werk"; this.eind=Date.now()+c.werk*1000; piep(2,true);
+    const r=$("#intR"); if(r) r.textContent=`Ronde ${this.ronde} van ${c.rondes}`;
+  }
+};
 
 /* ---------- 6. Analyse: records, volume, statistieken -------------------- */
 function allSessions(){ return DB.d.sessions.slice().sort((a,b)=>a.date<b.date?1:-1); }
@@ -1290,6 +1390,30 @@ const Train={
     head("Klaar om te trainen?", DB.d.sessions.length?`${DB.d.sessions.length} trainingen gelogd`:"Nog geen trainingen");
     const laatste=allSessions()[0];
     let h="";
+    // Twee soorten workouts: met gewichten in de gym, of met je eigen lichaam
+    h+=`<div class="seg">
+      <button type="button" class="${this.soort==="gym"?"on":""}" onclick="Train.kiesSoort('gym')">Gym</button>
+      <button type="button" class="${this.soort==="body"?"on":""}" onclick="Train.kiesSoort('body')">Body</button>
+    </div>`;
+
+    if(this.soort==="body"){
+      const laatsteBody=allSessions().find(s=>s.soort==="body");
+      h+=`<button class="btn primary lg wide" type="button" onclick="Train.start(null,'body')">Bodyworkout starten</button>
+        <div class="card"><div class="card-head"><div class="card-title">Hoe het werkt</div></div>
+          <div style="padding:13px 14px 15px"><p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Stel een rijtje oefeningen samen en doe die in rondes. De stopwatch loopt vanzelf mee.
+            Wil je op tijd werken — bijvoorbeeld 40 seconden aan, 20 seconden rust — zet dan de
+            intervaltimer aan; die piept bij elke wissel en telt je rondes af.</p></div></div>`;
+      if(laatsteBody) h+=`<div class="sec-label">Vorige bodyworkout</div>
+        <div class="list"><button class="li" type="button" onclick="go('sessie','${laatsteBody.id}')">
+          <div class="li-main"><b>${esc(Log.groepNaam(laatsteBody))}</b>
+            <span>${dShort(laatsteBody.date)} · ${laatsteBody.entries.length} oefeningen</span></div>
+          <div class="chev"></div></button></div>
+        <button class="btn ghost wide" type="button" onclick="Train.repeat('${laatsteBody.id}')">Deze herhalen</button>`;
+      V.innerHTML=h;
+      return;
+    }
+
     h+=Advies.kaart();
     h+=`<button class="btn primary lg wide" type="button" onclick="Train.start(null)">Lege workout starten</button>`;
     if(DB.d.sessions.length>=4) h+=Advies.balans();
@@ -1323,10 +1447,16 @@ const Train={
     V.innerHTML=h;
   },
 
-  start(routineId){
+  soort:"gym",
+  kiesSoort(s){ this.soort=s; render(); },
+
+  start(routineId,soort){
+    unlockAudio();
     const r=routineId?DB.d.routines.find(x=>x.id===routineId):null;
     DB.d.active={
       id:uid(),date:today(),start:Date.now(),end:null,
+      soort:soort||"gym", rondes:soort==="body"?S().interval.rondes:null,
+      pauzeTotaal:0, pauzeVanaf:null,
       name:r?r.name:"Training",routineId:routineId||null,notes:"",
       entries:(r?r.items:[]).map(it=>({exId:it.exId,note:"",rest:it.rest||null,
         sets:Array.from({length:it.sets||3},()=>({w:null,r:null,rpe:null,t:"work",done:false}))}))
@@ -1342,7 +1472,132 @@ const Train={
     DB.save(); render();
   },
 
+  /* ---- Bodyworkout: rondes, stopwatch en intervaltimer ------------------ */
+  bodyScherm(V,a){
+    const c=S().interval;
+    const gedaan=a.entries.map(e=>e.sets.filter(s=>s.done).length);
+    const ronde=a.entries.length ? Math.min(...gedaan)+1 : 1;
+    head(esc(a.name==="Training"?"Bodyworkout":a.name),
+      `Ronde ${Math.min(ronde,a.rondes||ronde)} van ${a.rondes||"?"}`,
+      `<button class="btn sm primary" type="button" onclick="Train.finish()">Klaar</button>`);
+
+    V.innerHTML=`
+      <div class="klokkaart">
+        <div class="klokrij">
+          <div class="tijd num" id="klok">${mmss(Klok.verstreken())}</div>
+          <button class="btn sm ghost" type="button" onclick="Klok.pauze()">${Klok.loopt()?"Pauze":"Verder"}</button>
+          <button class="btn sm ${Interval.aan?"danger":""}" type="button"
+            onclick="${Interval.aan?"Interval.stop()":"Train.intervalScherm()"}">${Interval.aan?"Stop":"Interval"}</button>
+        </div>
+        ${Interval.aan?`
+          <div class="intervalbalk ${Interval.fase}" id="intBal">
+            <div class="t num" id="intT">0:00</div>
+            <div class="l" id="intL">Werken</div>
+            <div style="font-size:12.5px;font-weight:700" id="intR">Ronde ${Interval.ronde} van ${c.rondes}</div>
+          </div>`:""}
+      </div>
+
+      ${a.entries.length?`<div class="list">${a.entries.map((e,i)=>{
+        const n=e.sets.filter(s=>s.done).length;
+        const doel=e.doel||{type:"reps",waarde:12};
+        const klaar=a.rondes && n>=a.rondes;
+        return `<div class="bodyrij">
+          <div class="naam"><b>${esc(exName(e.exId))}</b>
+            <button type="button" onclick="Train.bodyDoel(${i})"
+              style="font-size:12.5px;color:var(--ink-3);margin-top:2px">
+              ${doel.waarde} ${doel.type==="sec"?"sec":"reps"} · wijzig</button>
+            <div class="stippen" style="margin-top:6px">${
+              Array.from({length:a.rondes||n||1},(_,k)=>`<i class="${k<n?"vol":""}"></i>`).join("")}</div>
+          </div>
+          <button class="rondeknop ${klaar?"klaar":""}" type="button" onclick="Train.ronde(${i})"
+            aria-label="Ronde afvinken">${klaar?"✓":"+"}</button>
+        </div>`;
+      }).join("")}</div>`
+      :`<div class="card"><div class="empty"><div class="big">Nog geen oefeningen</div>
+        <p>Zet je rijtje samen — kettlebell swings, push-ups, plank — en tik na elke ronde op de plusknop.</p></div></div>`}
+
+      <button class="btn wide" type="button" onclick="Train.pickExercise()">+ Oefening toevoegen</button>
+      <div class="row">
+        <button class="btn ghost wide" type="button" onclick="Train.bodyRondes()">Rondes: ${a.rondes||"?"}</button>
+        <button class="btn ghost wide" type="button" onclick="Train.notes()">Notitie</button>
+      </div>
+      <button class="btn ghost wide" type="button" onclick="Train.cancel()">Workout annuleren</button>`;
+
+    Klok.aan();
+    if(Interval.aan) Interval.tik();
+  },
+
+  /* Eén ronde afvinken bij een oefening */
+  ronde(i){
+    unlockAudio();
+    const a=DB.d.active, e=a.entries[i];
+    const doel=e.doel||{type:"reps",waarde:12};
+    e.sets.push({w:0,r:doel.waarde,bw:true,rpe:null,t:"work",done:true,
+                 sec:doel.type==="sec"});
+    DB.save(); render(); piep(1,true);
+  },
+  bodyDoel(i){
+    const e=DB.d.active.entries[i];
+    const d=e.doel||{type:"reps",waarde:12};
+    Sheet.open(exName(e.exId),`
+      <div class="field"><label>Wat houd je bij?</label>
+        <div class="seg">
+          <button type="button" class="${d.type==="reps"?"on":""}" onclick="Train.doelType(${i},'reps')">Herhalingen</button>
+          <button type="button" class="${d.type==="sec"?"on":""}" onclick="Train.doelType(${i},'sec')">Seconden</button>
+        </div></div>
+      <div class="field"><label>Hoeveel per ronde</label>
+        <input class="ctrl num" id="dW" inputmode="numeric" value="${d.waarde}"></div>
+      <button class="btn primary wide" type="button" onclick="Train.doelSave(${i})">Opslaan</button>
+      <button class="btn danger wide" type="button" onclick="Train.delEx(${i})">Oefening verwijderen</button>`);
+  },
+  doelType(i,t){
+    const e=DB.d.active.entries[i];
+    e.doel={type:t,waarde:(e.doel?e.doel.waarde:(t==="sec"?40:12))};
+    DB.save(); Sheet.close(); this.bodyDoel(i);
+  },
+  doelSave(i){
+    const e=DB.d.active.entries[i];
+    const w=parseInt($("#dW").value,10)||12;
+    e.doel={type:(e.doel?e.doel.type:"reps"),waarde:w};
+    DB.save(); Sheet.close(); render();
+  },
+  bodyRondes(){
+    Sheet.open("Aantal rondes",`
+      <div class="field"><label>Hoeveel rondes wil je doen?</label>
+        <input class="ctrl num" id="rN" inputmode="numeric" value="${DB.d.active.rondes||5}"></div>
+      <button class="btn primary wide" type="button" onclick="Train.rondesSave()">Opslaan</button>`);
+  },
+  rondesSave(){
+    DB.d.active.rondes=clamp(parseInt($("#rN").value,10)||5,1,30);
+    DB.save(); Sheet.close(); render();
+  },
+  intervalScherm(){
+    const c=S().interval;
+    Sheet.open("Intervaltimer",`
+      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">De timer telt af, piept bij elke
+        wissel en houdt je rondes bij. De stopwatch loopt gewoon door.</p>
+      <div class="row">
+        <div class="field" style="flex:1"><label>Werk (sec)</label>
+          <input class="ctrl num" id="iW" inputmode="numeric" value="${c.werk}"></div>
+        <div class="field" style="flex:1"><label>Rust (sec)</label>
+          <input class="ctrl num" id="iR" inputmode="numeric" value="${c.rust}"></div>
+        <div class="field" style="flex:1"><label>Rondes</label>
+          <input class="ctrl num" id="iN" inputmode="numeric" value="${c.rondes}"></div>
+      </div>
+      <button class="btn primary lg wide" type="button" onclick="Train.intervalStart()">Starten</button>`);
+  },
+  intervalStart(){
+    const c=S().interval;
+    c.werk  =clamp(parseInt($("#iW").value,10)||40,5,600);
+    c.rust  =clamp(parseInt($("#iR").value,10)||0,0,600);
+    c.rondes=clamp(parseInt($("#iN").value,10)||5,1,30);
+    if(DB.d.active) DB.d.active.rondes=c.rondes;
+    DB.save(); Sheet.close(); Interval.start();
+  },
+
   active(V,a){
+    if(a.soort==="body") return this.bodyScherm(V,a);
+    Klok.uit();
     const st=sessionStats(a);
     const min=Math.round((Date.now()-a.start)/60000);
     head(esc(a.name), `<span class="num">${min} min</span> · ${st.sets} sets · <span class="num">${kf(st.vol)}</span> kg`,
@@ -1510,8 +1765,15 @@ const Train={
 
   pickExercise(){
     ExPicker.open(id=>{
-      DB.d.active.entries.push({exId:id,note:"",rest:null,
-        sets:Array.from({length:3},()=>({w:null,r:null,rpe:null,t:"work",done:false}))});
+      const a=DB.d.active;
+      if(a.soort==="body"){
+        const ex=exById(id);
+        a.entries.push({exId:id,note:"",rest:null,sets:[],
+          doel:{type:(ex&&ex.type==="time")?"sec":"reps", waarde:(ex&&ex.type==="time")?40:12}});
+      } else {
+        a.entries.push({exId:id,note:"",rest:null,
+          sets:Array.from({length:3},()=>({w:null,r:null,rpe:null,t:"work",done:false}))});
+      }
       DB.save(); Sheet.close(); render();
     });
   },
@@ -1522,7 +1784,7 @@ const Train={
   },
   async cancel(){
     if(await ask("Workout annuleren?","Alles wat je in deze workout hebt gelogd gaat weg.","Bevestigen",true)){
-      DB.d.active=null; DB.save(); render();
+      DB.d.active=null; DB.save(); Klok.uit(); Interval.stop(); render();
     }
   },
   /* Een geschreven terugblik op de workout. Cijfers in tegels lees je niet,
@@ -1670,7 +1932,7 @@ const Train={
     DB.d.sessions.push(a);
     if(a.routineId){ const r=DB.d.routines.find(x=>x.id===a.routineId); if(r) r.last=a.date; }
     DB.d.active=null; DB.save(); Sheet.close();
-    clearInterval(this._iv);
+    clearInterval(this._iv); Klok.uit(); Interval.stop();
     toast("Workout opgeslagen"); go("log");
   }
 };
