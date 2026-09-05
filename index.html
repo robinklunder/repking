@@ -268,6 +268,15 @@ select.ctrl{-webkit-appearance:none;appearance:none;background-image:linear-grad
 .seg{display:flex;background:var(--surface-3);border-radius:11px;padding:3px;gap:3px}
 .seg button{flex:1;min-height:36px;border-radius:8px;font-size:13.5px;font-weight:650;color:var(--ink-2)}
 .seg button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-1)}
+/* Meerkeuze: tik zoveel knopjes aan als je wilt. De eerste die je kiest is de
+   hoofdgroep — die staat op het label en bepaalt de volgorde in lijsten. */
+.multi{display:flex;flex-wrap:wrap;gap:6px}
+.multi button{
+  min-height:36px;padding:0 12px;border-radius:999px;font-size:13.5px;font-weight:650;
+  background:var(--surface-3);color:var(--ink-2);border:1px solid transparent;
+}
+.multi button.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
+.multi button.eerste::after{content:"·1";font-size:10.5px;opacity:.7;margin-left:4px}
 .switch{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
 .switch:last-child{border-bottom:0}
 .switch .sw-main{flex:1}
@@ -500,9 +509,27 @@ function defaultExercises(){
   return LIB.map(([name,groep,cat,type])=>({id:uid(),name,groep,cat,type:type||"wr",fav:false,arch:false}));
 }
 
+/* Een oefening mag meerdere spiergroepen en meerdere soorten bewegingen hebben:
+   bankdrukken is borst én triceps. De eerste in de lijst is de hoofdgroep — die
+   staat op het chipje en bepaalt waar de oefening in lijsten terechtkomt.
+
+   Oefeningen van vóór deze versie hebben alleen `groep` en `cat`. Die lezen we
+   hier als een lijst van één, zodat er niets omgezet hoeft te worden en oude
+   trainingen precies blijven zoals ze waren. */
+function exGroepen(ex){
+  if(!ex) return [];
+  return (ex.groepen&&ex.groepen.length) ? ex.groepen : (ex.groep?[ex.groep]:[]);
+}
+function exCats(ex){
+  if(!ex) return [];
+  return (ex.cats&&ex.cats.length) ? ex.cats : (ex.cat?[ex.cat]:[]);
+}
+function heeftGroep(ex,g){ return exGroepen(ex).indexOf(g)>=0; }
+const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"],["cardio","Cardio"]];
+
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="24 aug 2026 - 15:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="5 sep 2026 - 09:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -670,6 +697,9 @@ function historyFor(exId,excludeSessionId){
 function bestOf(sets){
   let b={e1:0,w:0,r:0,vol:0,set:null};
   for(const s of sets){
+    // Sets op tijd doen hier niet mee: 40 seconden met 24 kg is geen 1RM en
+    // geen volume, dat zou alleen maar valse records opleveren.
+    if(s.sec) continue;
     const v=(s.w||0)*(s.r||0); b.vol+=v;
     const e=e1rm(s.w,s.r);
     if(e>b.e1){ b.e1=e; b.w=s.w; b.r=s.r; b.set=s; }
@@ -683,7 +713,8 @@ function prFor(exId,excludeSessionId){
   for(const d of h){
     const b=bestOf(d.sets);
     if(b.e1>e1){ e1=b.e1; e1Date=d.date; }
-    for(const s of d.sets){ if((s.w||0)>zwaarst) zwaarst=s.w||0; if((s.r||0)>reps) reps=s.r||0; }
+    for(const s of d.sets){ if(s.sec) continue;
+      if((s.w||0)>zwaarst) zwaarst=s.w||0; if((s.r||0)>reps) reps=s.r||0; }
     if(b.vol>volSessie) volSessie=b.vol;
   }
   return {e1,zwaarst,reps,volSessie,e1Date,sessies:h.length};
@@ -691,7 +722,7 @@ function prFor(exId,excludeSessionId){
 function sessionStats(sess){
   let vol=0,sets=0,reps=0,kcal=0; const groepen={};
   for(const e of sess.entries){
-    const ex=exById(e.exId); const g=ex?ex.groep:"?";
+    const ex=exById(e.exId); const gs=exGroepen(ex).length?exGroepen(ex):["?"];
     // Cardio telt niet mee in volume en werksets: daar staat minuten in het
     // gewichtsveld, en minuten × kilometers is geen kilo's.
     const isCardio = ex && ex.type==="cardio";
@@ -699,8 +730,12 @@ function sessionStats(sess){
       if(!isWork(s)) continue;
       kcal += s.kcal||0;
       if(isCardio) continue;
-      sets++; reps+=s.r||0; const v=(s.w||0)*(s.r||0); vol+=v;
-      groepen[g]=(groepen[g]||0)+1;
+      sets++;
+      for(const g of gs) groepen[g]=(groepen[g]||0)+1;
+      // Een set op tijd (plank, farmer's hold) telt in seconden. 40 seconden
+      // × 24 kg is geen volume, dus die laten we hier buiten.
+      if(s.sec) continue;
+      reps+=s.r||0; vol+=(s.w||0)*(s.r||0);
     }
   }
   const dur = sess.start&&sess.end ? Math.round((sess.end-sess.start)/1000) : 0;
@@ -719,7 +754,9 @@ function setsPerGroup(dagen,vanaf){
     for(const e of s.entries){
       const ex=exById(e.exId); if(!ex) continue;
       const n=e.sets.filter(isWork).length;
-      if(n) out[ex.groep]=(out[ex.groep]||0)+n;
+      // Een set telt mee bij elke spiergroep die je bij de oefening hebt gezet.
+      // Deze cijfers staan los van elkaar (geen totaal), dus dat telt niet dubbel.
+      if(n) for(const g of exGroepen(ex)) out[g]=(out[g]||0)+n;
     }
   }
   return out;
@@ -731,7 +768,7 @@ function setsPerCat(dagen,vanaf){
     for(const e of s.entries){
       const ex=exById(e.exId); if(!ex) continue;
       const n=e.sets.filter(isWork).length;
-      if(n) out[ex.cat]=(out[ex.cat]||0)+n;
+      if(n) for(const c of exCats(ex)) out[c]=(out[c]||0)+n;
     }
   }
   return out;
@@ -1208,12 +1245,14 @@ const Advies={
       const d=daysAgo(s.date);
       if(d<0||d>28) continue;
       for(const e of s.entries){
-        const ex=exById(e.exId); if(!ex||!uit[ex.groep]) continue;
+        const ex=exById(e.exId); if(!ex) continue;
         const n=e.sets.filter(isWork).length; if(!n) continue;
-        const u=uit[ex.groep];
-        if(d<7) u.week+=n;
-        u.vier+=n;
-        if(d<u.dagen){ u.dagen=d; u.laatst=s.date; }
+        for(const g of exGroepen(ex)){
+          const u=uit[g]; if(!u) continue;
+          if(d<7) u.week+=n;
+          u.vier+=n;
+          if(d<u.dagen){ u.dagen=d; u.laatst=s.date; }
+        }
       }
     }
     for(const g in uit){
@@ -1231,6 +1270,29 @@ const Advies={
   },
 
   keuze:0,
+
+  /* ---- Voorstellen wegdrukken -------------------------------------------
+     Zit er een oefening bij die je toch niet doet, dan tik je hem weg en komt
+     er een andere voor terug. Dat geldt voor vandaag; morgen begint de lijst
+     weer schoon. Wil je een oefening nóóit meer zien, zet hem dan op "Niet
+     voorstellen" bij Meer → Oefeningen.                                     */
+  weggedrukt(){
+    const s=S();
+    if(!s.adviesWeg || s.adviesWeg.datum!==today()) s.adviesWeg={datum:today(),ids:[]};
+    return s.adviesWeg.ids;
+  },
+  wegdrukken(exId){
+    const naam=exName(exId);
+    const w=this.weggedrukt();
+    if(w.indexOf(exId)<0) w.push(exId);
+    DB.save();
+    const nieuw=this.voorstel();
+    const komt=nieuw ? nieuw.oefeningen.map(o=>o.naam).filter(n=>n!==naam) : [];
+    render();
+    toast(komt.length ? naam+" eruit — kijk of het nieuwe voorstel je bevalt"
+                      : naam+" eruit — veel keus is er niet meer");
+  },
+  terugzetten(){ S().adviesWeg={datum:today(),ids:[]}; DB.save(); render(); toast("Alles staat er weer bij"); },
 
   /* Alle bruikbare dagsoorten, de urgentste voorop. Zo kun je zelf kiezen in
      plaats van dat de app één ding voorschrijft. */
@@ -1270,36 +1332,86 @@ const Advies={
     for(let i=1; aantal.reduce((a,b)=>a+b,0)<4 && i<groepen.length*3; i++)
       aantal[i%groepen.length]=Math.min(3,aantal[i%groepen.length]+1);
 
+    // Eén oefening kan bij meerdere groepen horen. We houden bij wat we al
+    // voorgesteld hebben, anders staat bankdrukken er twee keer in op een duwdag.
+    const gekozen=new Set();
+    const weg=this.weggedrukt();
+
     groepen.forEach((g,gi)=>{
       const perGroep=aantal[gi];
-      const metHistorie=DB.d.exercises
-        .filter(e=>e.groep===g && !e.arch && !e.nietVoorstellen && e.type!=="cardio")
+      const bruikbaar=f=>DB.d.exercises.filter(e=>
+        f(e) && !e.arch && !e.nietVoorstellen && e.type!=="cardio"
+        && !gekozen.has(e.id) && weg.indexOf(e.id)<0);
+      // Eerst oefeningen waarvoor dit de hóófdgroep is; pas als die op zijn,
+      // ook oefeningen die deze groep er als tweede bij pakken.
+      let pool=bruikbaar(e=>exGroepen(e)[0]===g);
+      if(pool.length<perGroep) pool=pool.concat(bruikbaar(e=>exGroepen(e)[0]!==g && heeftGroep(e,g)));
+
+      const metHistorie=pool
         .map(e=>{
           const h=historyFor(e.id); if(!h.length) return null;
           const l=h[h.length-1], b=bestOf(l.sets);
           return {id:e.id,naam:e.name,sessies:h.length,dagen:daysAgo(l.date),w:b.w,r:b.r};
         }).filter(Boolean);
 
-      let lijst=metHistorie.filter(k=>k.sessies>=2);
+      // "Doe ik dit eigenlijk wel?" Eén keer een glute bridge gedaan is geen
+      // gewoonte. We kijken eerst naar oefeningen die je minstens drie keer
+      // deed, dan twee, en pas als er niets overblijft naar de rest.
+      let lijst=metHistorie.filter(k=>k.sessies>=3);
+      if(!lijst.length) lijst=metHistorie.filter(k=>k.sessies>=2);
       if(!lijst.length) lijst=metHistorie;
-      // Verwaarloosd weegt zwaar, maar niet oneindig: door de dagen op 45 te
-      // kappen kan een vertrouwde basisoefening het nog winnen van iets wat
-      // je één keer een half jaar geleden hebt gedaan.
-      const gewicht=k=>Math.min(k.dagen,45)+k.sessies*4;
+      // Binnen wat je écht doet telt vooral hoe lang je het niet gedaan hebt.
+      // De dagen kappen we op 60, anders wint iets van een half jaar geleden
+      // altijd van een oefening die gewoon in je programma zit.
+      const gewicht=k=>Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
       lijst.sort((a,b)=>gewicht(b)-gewicht(a));
 
       if(!lijst.length){
-        const e=DB.d.exercises.find(x=>x.groep===g && !x.arch && !x.nietVoorstellen && x.type!=="cardio");
+        // Voor deze groep staat nog niets in je logboek — bilspieren, kuiten.
+        // Dan stellen we één standaardoefening voor, anders blijft die groep
+        // eeuwig leeg. Heb je dat voorstel net weggedrukt, dan houden we op
+        // met aandringen: hieronder komt er iets voor terug dat je wél doet.
+        const alWeg=DB.d.exercises.some(e=>heeftGroep(e,g) && weg.indexOf(e.id)>=0);
+        const e=alWeg?null:pool[0];
         if(e) lijst=[{id:e.id,naam:e.name,sessies:0,dagen:999,w:null,r:null}];
       }
-      for(const k of lijst.slice(0,perGroep)) uit.push({...k,groep:g});
+      for(const k of lijst.slice(0,perGroep)){ gekozen.add(k.id); uit.push({...k,groep:g}); }
     });
+
+    // Gaatje gevallen doordat je iets hebt weggedrukt? Aanvullen met oefeningen
+    // die je echt doet, uit de groepen van vandaag, die je het langst liet liggen.
+    const doel=aantal.reduce((a,b)=>a+b,0);
+    if(uit.length<doel){
+      const gewicht=k=>Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
+      const rest=DB.d.exercises
+        .filter(e=>!e.arch && !e.nietVoorstellen && e.type!=="cardio"
+                && !gekozen.has(e.id) && weg.indexOf(e.id)<0
+                && exGroepen(e).some(g=>groepen.indexOf(g)>=0))
+        .map(e=>{
+          const h=historyFor(e.id); if(h.length<2) return null;
+          const l=h[h.length-1], b=bestOf(l.sets);
+          return {id:e.id,naam:e.name,sessies:h.length,dagen:daysAgo(l.date),
+                  w:b.w,r:b.r,groep:exGroepen(e)[0]};
+        }).filter(Boolean)
+        .sort((a,b)=>gewicht(b)-gewicht(a));
+      for(const k of rest.slice(0,doel-uit.length)){ gekozen.add(k.id); uit.push(k); }
+    }
     return uit;
   },
 
   /* De kaart op het startscherm */
   kaart(){
     const opties=this.alle();
+    // Zoveel weggedrukt dat er geen voorstel meer overblijft? Dat is geen
+    // rustdag — zeg dan gewoon dat de lijst op is.
+    if(!opties.length && this.weggedrukt().length) return `
+      <div class="card">
+        <div class="card-head"><div class="card-title">Voorstel voor vandaag</div></div>
+        <div style="padding:13px 14px 15px"><p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+          Je hebt zoveel weggedrukt dat er niets meer over is om voor te stellen.</p>
+          <button class="btn wide" type="button" style="margin-top:11px"
+            onclick="Advies.terugzetten()">Voorstellen terugzetten</button></div>
+      </div>`;
     // Alles net gehad? Dan is niet trainen het juiste advies.
     if(!opties.length) return `
       <div class="card">
@@ -1333,15 +1445,22 @@ const Advies={
           ${v.oefeningen.map(o=>{
             // Nieuw of lang niet gedaan? Dan een knopje met uitleg erbij.
             const onbekend = !o.sessies || o.dagen>90;
-            return `<div style="display:flex;align-items:center;gap:10px">
+            return `<div style="display:flex;align-items:center;gap:8px">
               <span style="flex:1;min-width:0;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.naam)}</span>
               ${onbekend?`<button type="button" onclick="toonUitleg('${esc(o.naam).replace(/'/g,"\\'")}')"
                  style="width:26px;height:26px;flex:none;border-radius:99px;background:var(--accent-soft);color:var(--accent);font-weight:800;font-size:14px"
                  aria-label="Uitleg">?</button>`:`<span class="chip">${esc(o.groep)}</span>`}
               <span class="num" style="font-size:12.5px;color:var(--ink-3);white-space:nowrap">${o.w?setTekst(o.w,o.r):(o.sessies?"eigen gewicht":"nieuw")}</span>
+              <button type="button" onclick="Advies.wegdrukken('${o.id}')"
+                style="width:26px;height:26px;flex:none;border-radius:99px;background:var(--surface-3);color:var(--ink-3);font-size:13px;font-weight:700"
+                aria-label="Andere oefening dan ${esc(o.naam)}">✕</button>
             </div>`;
           }).join("")}
         </div>
+        ${this.weggedrukt().length?`<div style="padding:0 14px 10px">
+          <button type="button" onclick="Advies.terugzetten()"
+            style="font-size:12.5px;color:var(--accent);font-weight:650">
+            ${this.weggedrukt().length} weggedrukt vandaag — alles terugzetten</button></div>`:""}
         <div style="padding:0 14px 13px"><button class="btn primary wide" type="button"
           onclick="Advies.start()">Start deze workout</button></div>
       </div>`;
@@ -1513,7 +1632,7 @@ const Train={
           <div class="naam"><b>${esc(exName(e.exId))}</b>
             <button type="button" onclick="Train.bodyDoel(${i})"
               style="font-size:12.5px;color:var(--ink-3);margin-top:2px">
-              ${doel.waarde} ${doel.type==="sec"?"sec":"reps"} · wijzig</button>
+              ${doel.waarde} ${doel.type==="sec"?"sec":"reps"}${doel.kg?" · "+nf(doel.kg)+" kg":""} · wijzig</button>
             <div class="stippen" style="margin-top:6px">${
               Array.from({length:a.rondes||n||1},(_,k)=>`<i class="${k<n?"vol":""}"></i>`).join("")}</div>
           </div>
@@ -1540,7 +1659,9 @@ const Train={
     unlockAudio();
     const a=DB.d.active, e=a.entries[i];
     const doel=e.doel||{type:"reps",waarde:12};
-    e.sets.push({w:0,r:doel.waarde,bw:true,rpe:null,t:"work",done:true,
+    // Staat er een gewicht bij (kettlebell, vest, dumbbell), dan gaat dat mee
+    // in de set. Zonder gewicht blijft het gewoon je eigen lichaamsgewicht.
+    e.sets.push({w:doel.kg||0,r:doel.waarde,bw:!doel.kg,rpe:null,t:"work",done:true,
                  sec:doel.type==="sec"});
     DB.save(); render(); piep(1,true);
   },
@@ -1553,20 +1674,39 @@ const Train={
           <button type="button" class="${d.type==="reps"?"on":""}" onclick="Train.doelType(${i},'reps')">Herhalingen</button>
           <button type="button" class="${d.type==="sec"?"on":""}" onclick="Train.doelType(${i},'sec')">Seconden</button>
         </div></div>
-      <div class="field"><label>Hoeveel per ronde</label>
-        <input class="ctrl num" id="dW" inputmode="numeric" value="${d.waarde}"></div>
+      <div class="row">
+        <div class="field" style="flex:1"><label>${d.type==="sec"?"Seconden":"Herhalingen"} per ronde</label>
+          <input class="ctrl num" id="dW" inputmode="numeric" value="${d.waarde}"></div>
+        <div class="field" style="flex:1"><label>Gewicht (kg)</label>
+          <input class="ctrl num" id="dKg" inputmode="decimal" placeholder="geen" value="${d.kg||""}"></div>
+      </div>
+      <p class="mut">Laat het gewicht leeg als je alleen je eigen lichaamsgewicht gebruikt.
+        Vul je wel kilo's in — een kettlebell, een gewichtsvest — dan komen die bij elke ronde
+        in je logboek te staan.</p>
       <button class="btn primary wide" type="button" onclick="Train.doelSave(${i})">Opslaan</button>
       <button class="btn danger wide" type="button" onclick="Train.delEx(${i})">Oefening verwijderen</button>`);
   },
+  /* Wat je al ingetypt hebt, uit de velden vissen — anders ben je het kwijt
+     zodra je van herhalingen naar seconden wisselt. */
+  doelUitVelden(d){
+    const w=$("#dW"), k=$("#dKg");
+    return {
+      waarde: w ? (parseInt(w.value,10)||d.waarde) : d.waarde,
+      kg: k ? (parseFloat(String(k.value).replace(",","."))||0) : (d.kg||0)
+    };
+  },
   doelType(i,t){
     const e=DB.d.active.entries[i];
-    e.doel={type:t,waarde:(e.doel?e.doel.waarde:(t==="sec"?40:12))};
+    const d=e.doel||{type:"reps",waarde:12};
+    const v=this.doelUitVelden(d);
+    e.doel={type:t, waarde:v.waarde||(t==="sec"?40:12), kg:v.kg};
     DB.save(); Sheet.close(); this.bodyDoel(i);
   },
   doelSave(i){
     const e=DB.d.active.entries[i];
-    const w=parseInt($("#dW").value,10)||12;
-    e.doel={type:(e.doel?e.doel.type:"reps"),waarde:w};
+    const d=e.doel||{type:"reps",waarde:12};
+    const v=this.doelUitVelden(d);
+    e.doel={type:d.type||"reps", waarde:v.waarde||12, kg:v.kg};
     DB.save(); Sheet.close(); render();
   },
   bodyRondes(){
@@ -1640,7 +1780,7 @@ const Train={
     return `<div class="ex">
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
-          <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>
+          <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>
           ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>setTekst(s.w,s.r,false,s.bw)).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
           ${pr.e1?`<span class="prev-hint">· record ${nf(Math.round(pr.e1))}kg e1RM</span>`:""}</div>
         </div>
@@ -1708,7 +1848,7 @@ const Train={
     DB.save();
   },
   checkPR(exId,s,sessId){
-    if(s.t==="warmup"||!s.w||!s.r) return null;
+    if(s.t==="warmup"||s.sec||!s.w||!s.r) return null;
     const pr=prFor(exId,sessId);
     if(!pr.sessies) return null;
     const e=e1rm(s.w,s.r);
@@ -1848,7 +1988,7 @@ const Train={
         const d=daysAgo(s.date); if(d<0) continue;
         for(const e of s.entries){
           const ex=exById(e.exId);
-          if(ex&&ex.groep===g&&e.sets.filter(isWork).length&&d<dagen) dagen=d;
+          if(ex&&heeftGroep(ex,g)&&e.sets.filter(isWork).length&&d<dagen) dagen=d;
         }
       }
       if(dagen>=14) ingehaald.push({g,dagen});
@@ -1970,7 +2110,7 @@ const ExPicker={
     const recent=[];
     for(const s of allSessions().slice(0,12)) for(const e of s.entries) if(!recent.includes(e.exId)) recent.push(e.exId);
     let ex=DB.d.exercises.filter(e=>!e.arch);
-    if(this.groep) ex=ex.filter(e=>e.groep===this.groep);
+    if(this.groep) ex=ex.filter(e=>heeftGroep(e,this.groep));
     if(this.q) ex=ex.filter(e=>e.name.toLowerCase().includes(this.q));
     ex.sort((a,b)=>{
       const ra=recent.indexOf(a.id), rb=recent.indexOf(b.id);
@@ -1980,7 +2120,7 @@ const ExPicker={
     $("#exList").innerHTML= ex.length? `<div class="list">`+ex.slice(0,60).map(e=>{
       const h=historyFor(e.id); const last=h[h.length-1];
       return `<button class="li" type="button" onclick="ExPicker.pick('${e.id}')">
-        <div class="li-main"><b>${esc(e.name)}</b><span>${esc(e.groep)}${last?" · "+relDate(last.date):""}</span></div>
+        <div class="li-main"><b>${esc(e.name)}</b><span>${esc(exGroepen(e).join(" · "))}${last?" · "+relDate(last.date):""}</span></div>
         ${recent.indexOf(e.id)>-1?`<span class="chip acc">recent</span>`:""}</button>`;
     }).join("")+`</div>` : `<p class="mut" style="padding:14px 2px">Niets gevonden. Maak hem hieronder aan.</p>`;
   },
@@ -2046,9 +2186,14 @@ const Log={
   spiergroepen(s){
     const tel={};
     for(const e of s.entries){
-      const ex=exById(e.exId); if(!ex||ex.groep==="Cardio") continue;
-      const n=e.sets.filter(isWork).length;
-      if(n) tel[ex.groep]=(tel[ex.groep]||0)+n;
+      const ex=exById(e.exId); if(!ex) continue;
+      const n=e.sets.filter(isWork).length; if(!n) continue;
+      // De hoofdgroep telt vol mee, een bijgroep half: anders heet elke
+      // borstsessie ineens "Borst & Triceps" omdat de triceps meedoen.
+      exGroepen(ex).forEach((g,i)=>{
+        if(g==="Cardio") return;
+        tel[g]=(tel[g]||0)+(i===0?n:n/2);
+      });
     }
     return Object.entries(tel).sort((a,b)=>b[1]-a[1]).map(x=>x[0]);
   },
@@ -2105,7 +2250,7 @@ const Log={
         const ex=exById(e.exId)||{name:"?",groep:"?"};
         return `<div class="ex">
           <div class="ex-head"><div class="ex-name"><b>${esc(ex.name)}</b>
-            <div class="ex-meta"><span class="chip">${esc(ex.groep)}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
+            <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
             <button class="ex-more" type="button" onclick="${b?`Log.exMenu('${s.id}',${i})`:`go('oefening','${e.exId}')`}"
               aria-label="${b?"Opties":"Voortgang"}">${b?"⋯":"→"}</button></div>
           <div class="setgrid head"><span>Set</span><span>Reps</span><span>Kg</span><span></span></div>
@@ -2118,11 +2263,11 @@ const Log={
                  :`<span class="setno ${kleur}">${label}</span>`}
               ${b?`<input class="inp num" inputmode="numeric" value="${x.r??""}" aria-label="Herhalingen"
                      onchange="Log.zet('${s.id}',${i},${j},'r',this.value)">`
-                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}</span>`}
+                 :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.r??"–"}${x.sec?"s":""}</span>`}
               ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
                      onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
                  :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.bw?(x.w?"BW+"+nf(x.w):"BW"):(x.w!=null?nf(x.w):"–")}</span>`}
-              <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r?Math.round(e1rm(x.w,x.r)):""}</span>
+              <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r&&!x.sec?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
           ${b?`<div class="ex-foot">
@@ -2367,7 +2512,7 @@ const Prog={
   detail(V,exId){
     const ex=exById(exId); if(!ex){ go("prog"); return; }
     const h=historyFor(exId), pr=prFor(exId);
-    head(esc(ex.name),`${ex.groep} · ${h.length} sessies`,
+    head(esc(ex.name),`${exGroepen(ex).join(" · ")} · ${h.length} sessies`,
       `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
     if(!h.length){ V.innerHTML=`<div class="card"><div class="empty"><p>Nog niet gelogd.</p></div></div>`; return; }
 
@@ -2648,24 +2793,29 @@ const Meer={
 
   /* ---- Oefeningen ---- */
   exList(){
-    const ex=DB.d.exercises.filter(e=>!e.arch).sort((a,b)=>a.groep===b.groep?a.name.localeCompare(b.name):GROEPEN.indexOf(a.groep)-GROEPEN.indexOf(b.groep));
+    // Gesorteerd op hoofdgroep: een oefening staat onder één kopje, ook als hij
+    // meerdere spiergroepen raakt. De rest zie je als je hem opent.
+    const hg=e=>exGroepen(e)[0]||"";
+    const ex=DB.d.exercises.filter(e=>!e.arch)
+      .sort((a,b)=>hg(a)===hg(b)?a.name.localeCompare(b.name):GROEPEN.indexOf(hg(a))-GROEPEN.indexOf(hg(b)));
     let cur="";
     Sheet.open("Oefeningen",`
       <button class="btn primary wide" type="button" onclick="Meer.exNew()">+ Nieuwe oefening</button>
       ${ex.map(e=>{
-        const kop = e.groep!==cur ? (cur=e.groep, `<div class="sec-label">${e.groep}</div>`) : "";
+        const kop = hg(e)!==cur ? (cur=hg(e), `<div class="sec-label">${cur}</div>`) : "";
         const h=historyFor(e.id);
+        const extra=exGroepen(e).slice(1);
         return kop+`<div class="list" style="margin-top:${kop?"0":"-13px"}"><button class="li" type="button" onclick="Meer.exEdit('${e.id}')">
-          <div class="li-main"><b>${esc(e.name)}</b><span>${h.length?h.length+" sessies":"nog niet gebruikt"}</span></div><div class="chev"></div></button></div>`;
+          <div class="li-main"><b>${esc(e.name)}</b><span>${extra.length?"+ "+esc(extra.join(", "))+" · ":""}${h.length?h.length+" sessies":"nog niet gebruikt"}</span></div><div class="chev"></div></button></div>`;
       }).join("")}`);
   },
   exNew(cb){
     Sheet.open("Nieuwe oefening",`
       <div class="field"><label>Naam</label><input class="ctrl" id="nName" placeholder="bijv. Pendlay row" autocomplete="off"></div>
-      <div class="field"><label>Spiergroep</label><select class="ctrl" id="nGroep">${GROEPEN.map(g=>`<option>${g}</option>`).join("")}</select></div>
-      <div class="field"><label>Soort beweging</label><select class="ctrl" id="nCat">
-        <option value="push">Duwen</option><option value="pull">Trekken</option>
-        <option value="legs">Benen</option><option value="core">Core</option><option value="cardio">Cardio</option></select></div>
+      <div class="field"><label>Spiergroepen</label>
+        ${this.kiezer("nGroep",GROEPEN.map(g=>[g,g]),["Borst"])}</div>
+      <div class="field"><label>Soort beweging</label>
+        ${this.kiezer("nCat",CATS,["push"])}</div>
       <div class="field"><label>Hoe meet je het?</label><select class="ctrl" id="nType">
         <option value="wr">Gewicht × herhalingen</option>
         <option value="bw">Lichaamsgewicht (herhalingen)</option>
@@ -2679,7 +2829,9 @@ const Meer={
   exSave(useCb){
     const name=$("#nName").value.trim();
     if(!name) return toast("Geef de oefening een naam");
-    const e={id:uid(),name,groep:$("#nGroep").value,cat:$("#nCat").value,type:$("#nType").value,fav:false,arch:false};
+    const groepen=this.gekozen("nGroep",["Borst"]), cats=this.gekozen("nCat",["push"]);
+    const e={id:uid(),name,groep:groepen[0],groepen,cat:cats[0],cats,
+             type:$("#nType").value,fav:false,arch:false};
     DB.d.exercises.push(e); DB.save();
     if(useCb&&this._cb){ const cb=this._cb; this._cb=null; cb(e.id); }
     else { Sheet.close(); toast("Toegevoegd"); render(); }
@@ -2688,10 +2840,10 @@ const Meer={
     const e=exById(id); if(!e) return;
     Sheet.open(e.name,`
       <div class="field"><label>Naam</label><input class="ctrl" id="eName" value="${esc(e.name)}"></div>
-      <div class="field"><label>Spiergroep</label><select class="ctrl" id="eGroep">${GROEPEN.map(g=>`<option${g===e.groep?" selected":""}>${g}</option>`).join("")}</select></div>
-      <div class="field"><label>Soort beweging</label><select class="ctrl" id="eCat">
-        ${[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"],["cardio","Cardio"]]
-          .map(([k,l])=>`<option value="${k}"${e.cat===k?" selected":""}>${l}</option>`).join("")}</select></div>
+      <div class="field"><label>Spiergroepen</label>
+        ${this.kiezer("eGroep",GROEPEN.map(g=>[g,g]),exGroepen(e))}</div>
+      <div class="field"><label>Soort beweging</label>
+        ${this.kiezer("eCat",CATS,exCats(e))}</div>
       <div class="switch"><div class="sw-main"><b>Niet voorstellen</b>
         <span>De app laat deze oefening weg uit het trainingsvoorstel. Je kunt hem zelf altijd nog kiezen.</span></div>
         <button class="toggle ${e.nietVoorstellen?"on":""}" type="button" onclick="Meer.togVoorstel('${id}',this)"><i></i></button></div>
@@ -2702,8 +2854,52 @@ const Meer={
   },
   exUpdate(id){
     const e=exById(id);
-    e.name=$("#eName").value.trim()||e.name; e.groep=$("#eGroep").value; e.cat=$("#eCat").value;
+    e.name=$("#eName").value.trim()||e.name;
+    e.groepen=this.gekozen("eGroep",exGroepen(e)); e.groep=e.groepen[0];
+    e.cats   =this.gekozen("eCat",  exCats(e));    e.cat  =e.cats[0];
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
+  },
+
+  /* ---- Meerkeuze-knopjes -------------------------------------------------
+     Eén rij knopjes waarvan je er zoveel mag aantikken als je wilt. De volgorde
+     waarin je tikt telt: de eerste is de hoofdgroep. Die staat op het chipje bij
+     de oefening en bepaalt onder welk kopje hij in de lijst staat. De rest telt
+     gewoon mee in je weekoverzicht en in het trainingsvoorstel.              */
+  _sel:{}, _lab:{},
+  kiezer(id,opties,gekozen){
+    const geldig=gekozen.filter(v=>opties.some(o=>o[0]===v));
+    this._sel[id]=geldig.length?geldig.slice():[opties[0][0]];
+    this._lab[id]=Object.fromEntries(opties);
+    return `<div class="multi" id="${id}">${opties.map(([v,l])=>
+      `<button type="button" data-v="${v}"
+         class="${this._sel[id].indexOf(v)>=0?"on":""}${(this._sel[id].length>1&&this._sel[id][0]===v)?" eerste":""}"
+         onclick="Meer.tik('${id}','${v}')">${l}</button>`).join("")}</div>
+      <p class="mut" id="${id}_h" style="margin-top:7px">${this.hint(id)}</p>`;
+  },
+  tik(id,v){
+    const a=this._sel[id]||[];
+    const i=a.indexOf(v);
+    if(i>=0){
+      if(a.length===1) return toast("Er moet er minstens één aanstaan");
+      a.splice(i,1);
+    } else a.push(v);
+    // Alle knopjes opnieuw kleuren, want de eerste keuze kan verschoven zijn
+    const box=$("#"+id); if(!box) return;
+    box.querySelectorAll("button").forEach(b=>{
+      const w=b.dataset.v;
+      b.classList.toggle("on",a.indexOf(w)>=0);
+      b.classList.toggle("eerste",a.length>1&&a[0]===w);
+    });
+    const h=$("#"+id+"_h"); if(h) h.textContent=this.hint(id);
+  },
+  hint(id){
+    const a=this._sel[id]||[], L=this._lab[id]||{};
+    if(a.length<2) return "Tik er meer aan als de oefening er meerdere raakt.";
+    return "Hoofd: "+(L[a[0]]||a[0])+" — de rest telt mee in je weekoverzicht.";
+  },
+  gekozen(id,terugval){
+    const a=this._sel[id];
+    return (a&&a.length)?a.slice():terugval.slice();
   },
   exArch(id){ exById(id).arch=true; DB.save(); Sheet.close(); toast("Verborgen"); render(); },
   togVoorstel(id,btn){
@@ -3440,7 +3636,7 @@ const Imp={
    Compact opgeslagen: n = oefeningnamen, s = [datum, naam, [[naamnr, notitie,
    [[kg, herhalingen, opwarmset, aantal keer]]]]], g = lichaamsgewicht.
    ============================================================================ */
-const SEED = null;   // bewust leeg: je eigen data zet je er via een back-up in
+const SEED = null;   // bewust leeg: de publieke versie bevat geen persoonlijke data
 
 function laadStartdata(){
   if(!SEED || !SEED.s || !SEED.s.length) return 0;
