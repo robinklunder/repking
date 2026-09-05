@@ -303,11 +303,6 @@ canvas{display:block;width:100%;height:100%}
 .legend span{font-size:11.5px;color:var(--ink-2);font-weight:600}
 
 /* Kalender-heatmap */
-.heat{display:grid;grid-template-columns:repeat(auto-fit,minmax(9px,1fr));gap:3px;padding:12px 14px}
-.heat i{aspect-ratio:1;border-radius:2px;background:var(--surface-3)}
-.heat i.l1{background:color-mix(in srgb,var(--accent) 30%,var(--surface-3))}
-.heat i.l2{background:color-mix(in srgb,var(--accent) 62%,var(--surface-3))}
-.heat i.l3{background:var(--accent)}
 
 /* Tips */
 .tip{display:flex;gap:12px;padding:14px;border-bottom:1px solid var(--line)}
@@ -537,7 +532,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="5 sep 2026 - 11:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="5 sep 2026 - 13:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -2171,21 +2166,11 @@ const Log={
         <p>Start je eerste training, of haal je bestaande logboek uit Excel of Notities binnen via Meer → Importeren.</p></div></div>`;
       return;
     }
-    // heatmap laatste ~18 weken
-    const dagen=126, counts={};
-    ss.forEach(s=>counts[s.date]=(counts[s.date]||0)+sessionStats(s).sets);
-    let heat="";
-    for(let i=dagen-1;i>=0;i--){
-      const d=addDays(today(),-i), c=counts[d]||0;
-      heat+=`<i class="${c?(c>=20?"l3":c>=10?"l2":"l1"):""}" title="${d}"></i>`;
-    }
     const groepen=new Map();
     ss.forEach(s=>{ const k=s.date.slice(0,7); if(!groepen.has(k)) groepen.set(k,[]); groepen.get(k).push(s); });
 
     V.innerHTML=`
-      <div class="card"><div class="card-head"><div class="card-title">Laatste 18 weken</div>
-        <span class="chip">${ss.filter(s=>daysAgo(s.date)<126).length} trainingen</span></div>
-        <div class="heat">${heat}</div></div>
+      ${this.frequentieKaart()}
       ${(()=>{
         const prs=Inspanning.prPerSessie();
         return [...groepen].map(([k,list])=>{
@@ -2214,6 +2199,68 @@ const Log={
           }).join("")+`</div>`;
         }).join("");
       })()}`;
+  },
+
+  /* ---- Hoe vaak train je? ------------------------------------------------
+     Hier stond een kalender met gekleurde blokjes per dag. Mooi, maar hij zei
+     niets: je kon er op een telefoon niet eens op tikken om de datum te zien.
+     Nu staan er twee getallen die je meteen snapt — deze vier weken tegenover
+     de vier daarvoor — met de losse weken eronder zodat je ziet waar de gaten
+     vallen. De week die nu loopt telt niet mee in het gemiddelde: die is nog
+     niet af en zou je cijfer omlaag trekken.                                */
+  frequentie(){
+    const per=[];
+    for(let i=8;i>=0;i--) per.push({week:weekKey(addDays(today(),-i*7)), gym:0, body:0});
+    const idx=new Map(per.map((w,i)=>[w.week,i]));
+    for(const s of DB.d.sessions){
+      const i=idx.get(weekKey(s.date));
+      if(i!==undefined) per[i][soortVan(s)]++;
+    }
+    const af=per.slice(0,8);                       // de acht afgeronde weken
+    const som=a=>a.reduce((x,w)=>x+w.gym+w.body,0);
+    return {per, nu:som(af.slice(4))/4, ervoor:som(af.slice(0,4))/4};
+  },
+  frequentieKaart(){
+    const f=this.frequentie();
+    const max=Math.max(1,...f.per.map(w=>w.gym+w.body));
+    const een=n=>n.toLocaleString("nl-NL",{minimumFractionDigits:1,maximumFractionDigits:1});
+    const verschil=f.nu-f.ervoor;
+    const chip = Math.abs(verschil)<0.25 ? {k:"",     t:"gelijk"}
+               : verschil>0             ? {k:"good", t:"vaker"}
+                                        : {k:"warn", t:"minder vaak"};
+    let zin;
+    if(!f.nu && !f.ervoor) zin="Je hebt de afgelopen acht weken niets gelogd.";
+    else if(!f.ervoor)     zin=`Je traint <b class="num" style="color:var(--ink)">${een(f.nu)}×</b> per week. In de vier weken daarvóór stond er niets in je logboek.`;
+    else zin=`Je traint <b class="num" style="color:var(--ink)">${een(f.nu)}×</b> per week over de laatste vier weken, tegen <b class="num" style="color:var(--ink)">${een(f.ervoor)}×</b> in de vier weken daarvoor.`;
+
+    const heeftBody=f.per.some(w=>w.body>0);
+    const H=64;                                    // hoogte van de hoogste balk
+    const kolommen=f.per.map((w,i)=>{
+      const n=w.gym+w.body, nu=(i===f.per.length-1);
+      const hg=w.gym ?Math.max(4,Math.round(w.gym /max*H)):0;
+      const hb=w.body?Math.max(4,Math.round(w.body/max*H)):0;
+      const d=dParse(w.week);
+      return `<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:5px${nu?";opacity:.6":""}">
+        <span class="num" style="font-size:11px;color:var(--ink-3)">${n||"–"}</span>
+        <div style="width:100%;height:${H}px;display:flex;flex-direction:column;justify-content:flex-end">
+          ${hb?`<i style="display:block;height:${hb}px;background:var(--good);border-radius:4px 4px 0 0"></i>`:""}
+          ${hg?`<i style="display:block;height:${hg}px;background:var(--accent);border-radius:${hb?"0":"4px 4px"} 0 0"></i>`:""}
+          ${n?"":`<i style="display:block;height:3px;background:var(--surface-3);border-radius:2px"></i>`}
+        </div>
+        <span style="font-size:10px;color:var(--ink-3);white-space:nowrap">${nu?"nu":d.getDate()+"/"+(d.getMonth()+1)}</span>
+      </div>`;
+    }).join("");
+
+    return `
+      <div class="card">
+        <div class="card-head"><div class="card-title">Hoe vaak train je</div>
+          <span class="chip ${chip.k}">${chip.t}</span></div>
+        <div style="padding:13px 14px 2px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${zin}</p></div>
+        <div style="padding:10px 14px 4px;display:flex;align-items:flex-end;gap:5px">${kolommen}</div>
+        <div style="padding:2px 14px 13px">
+          <p class="mut" style="font-size:12px">Workouts per week. ${heeftBody?`Oranje is gym, groen is body. `:""}De week die nu loopt telt nog niet mee in de vergelijking.</p></div>
+      </div>`;
   },
 
   /* Waar ging deze workout over? De spiergroepen met de meeste werksets,
