@@ -465,6 +465,14 @@ function setTekst(w,r,metEenheid,bw){
 function e1rm(w,r){ if(!w||!r) return 0; if(r===1) return w; if(r>15) r=15; return w*(1+r/30); }
 function isWork(s){ return s.done && s.t!=="warmup"; }
 
+/* Gym of body? Alles wat vóór de bodysectie is gelogd heeft nog geen `soort`
+   en is dus gewoon een gymworkout. Twee soorten die je niet met elkaar moet
+   vergelijken: een circuit van 25 minuten met kettlebells is niet "lichter"
+   dan een uur bankdrukken, het is iets anders. */
+function soortVan(s){ return (s && s.soort==="body") ? "body" : "gym"; }
+const SOORTNAAM={gym:"Gym", body:"Body"};
+const SOORTWOORD={gym:"gymworkouts", body:"bodyworkouts"};
+
 /* ---------- 2. Oefeningenbibliotheek ----------------------------------- */
 /* groep = spiergroep, cat = push/pull/legs/core/cardio, type = meetsoort */
 const LIB = [
@@ -529,7 +537,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="5 sep 2026 - 09:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="5 sep 2026 - 11:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -921,8 +929,11 @@ const Inspanning={
   /* Vergelijk met de acht trainingen dáárvóór. Acht is genoeg om een
      gemiddelde op te bouwen en kort genoeg om je huidige vorm te vangen. */
   vergelijk(s){
+    // Alleen met dezelfde soort workout: een bodycircuit hoort naast andere
+    // bodycircuits, niet naast een uur in de gym.
+    const soort=soortVan(s);
     const eerder=DB.d.sessions
-      .filter(x=>x.date<s.date)
+      .filter(x=>x.date<s.date && soortVan(x)===soort)
       .sort((a,b)=>a.date<b.date?1:-1).slice(0,8);
     if(eerder.length<3) return null;
     const nu=this.maten(s);
@@ -937,7 +948,7 @@ const Inspanning={
     voeg("hr","hartslag"); voeg("effort","Strava");
     if(!delen.length) return null;
     const index=Math.round(delen.reduce((a,d)=>a+d.ratio,0)/delen.length*100);
-    return {index, delen, nu, gem, basis:eerder.length};
+    return {index, delen, nu, gem, basis:eerder.length, soort, woord:SOORTWOORD[soort]};
   },
 
   /* Per training: hoeveel persoonlijke records vielen erin?
@@ -998,7 +1009,8 @@ const Inspanning={
   /* Kaart met de vergelijking, voor het detailscherm van een training */
   kaart(s){
     const v=this.vergelijk(s);
-    if(!v) return `<div class="card card-pad"><p class="mut">Nog te weinig eerdere trainingen om mee te vergelijken.</p></div>`;
+    if(!v) return `<div class="card card-pad"><p class="mut">Nog te weinig ${SOORTWOORD[soortVan(s)]}
+      om mee te vergelijken — vanaf drie stuks zet ik ze hier naast elkaar.</p></div>`;
     const l=this.label(v.index);
     const pct=v.index-100;
     return `
@@ -1007,8 +1019,8 @@ const Inspanning={
           <span class="chip ${l.k}">${l.t}</span></div>
         <div style="padding:13px 14px 4px">
           <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
-            Deze training was <b class="num" style="color:var(--ink)">${pct>0?"+":""}${pct}%</b>
-            ten opzichte van je vorige ${v.basis} trainingen.</p>
+            Deze workout was <b class="num" style="color:var(--ink)">${pct>0?"+":""}${pct}%</b>
+            ten opzichte van je vorige ${v.basis} ${v.woord}.</p>
         </div>
         <div style="padding:8px 14px 14px;display:flex;flex-direction:column;gap:8px">
           ${v.delen.map(d=>{
@@ -1589,10 +1601,22 @@ const Train={
   },
   repeat(sessId){
     const s=DB.d.sessions.find(x=>x.id===sessId); if(!s) return;
+    // Een bodyworkout herhaal je als bodyworkout: hetzelfde rijtje oefeningen
+    // met hun doel, nul rondes afgevinkt en de klok stil tot je hem start.
+    const body=soortVan(s)==="body";
     DB.d.active={id:uid(),date:today(),start:Date.now(),end:null,name:s.name||"Training",
+      soort:body?"body":"gym", rondes:body?(s.rondes||null):null,
+      pauzeTotaal:0, pauzeVanaf:(body?Date.now():null),
       routineId:s.routineId||null,notes:"",
-      entries:s.entries.map(e=>({exId:e.exId,note:"",rest:e.rest||null,
-        sets:e.sets.filter(x=>x.t!=="warmup").map(x=>({w:x.w,r:x.r,rpe:null,t:"work",done:false}))}))};
+      entries:s.entries.map(e=>{
+        if(body){
+          const eerste=e.sets[0]||{};
+          return {exId:e.exId,note:"",sets:[],
+                  doel:{type:eerste.sec?"sec":"reps", waarde:eerste.r||12, kg:eerste.w||0}};
+        }
+        return {exId:e.exId,note:"",rest:e.rest||null,
+                sets:e.sets.filter(x=>x.t!=="warmup").map(x=>({w:x.w,r:x.r,rpe:null,t:"work",done:false}))};
+      })};
     DB.save(); render();
   },
 
@@ -1945,7 +1969,9 @@ const Train={
     // 1. wat heb je gedaan
     const groepen=Log.spiergroepen(a);
     const wat = groepen.length ? groepen.slice(0,3).join(", ").replace(/,([^,]*)$/," en$1") : "cardio";
-    zinnen.push(`Je trainde <b>${esc(wat)}</b> in ${min} minuten: ${st.sets} ${st.sets===1?"werkset":"werksets"} over ${st.oef} ${st.oef===1?"oefening":"oefeningen"}.`);
+    const body=soortVan(a)==="body";
+    const eenheid = body ? (st.sets===1?"ronde":"rondes") : (st.sets===1?"werkset":"werksets");
+    zinnen.push(`Je trainde <b>${esc(wat)}</b> in ${min} minuten: ${st.sets} ${eenheid} over ${st.oef} ${st.oef===1?"oefening":"oefeningen"}.`);
 
     // 2. je zwaarste set van vandaag
     const top=Log.hoofdoefening(a);
@@ -1974,8 +2000,8 @@ const Train={
     const v=Inspanning.vergelijk(a);
     if(v){
       const p=v.index-100;
-      if(p>=8)      zinnen.push(`Deze workout was <b>${p}% zwaarder</b> dan je vorige ${v.basis}. Houd je herstel in de gaten.`);
-      else if(p<=-8)zinnen.push(`Deze workout was <b>${Math.abs(p)}% lichter</b> dan je vorige ${v.basis} — prima als het een rustige dag mocht zijn.`);
+      if(p>=8)      zinnen.push(`Deze workout was <b>${p}% zwaarder</b> dan je vorige ${v.basis} ${v.woord}. Houd je herstel in de gaten.`);
+      else if(p<=-8)zinnen.push(`Deze workout was <b>${Math.abs(p)}% lichter</b> dan je vorige ${v.basis} ${v.woord} — prima als het een rustige dag mocht zijn.`);
       else          zinnen.push(`Qua zwaarte zat je op je gewone niveau.`);
     }
 
@@ -2013,11 +2039,13 @@ const Train={
       const b=bestOf(e.sets.filter(isWork));
       if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true)}`);
     }
+    const body=soortVan(a)==="body";
     Sheet.open("Workout afronden",`
       <div class="tiles">
         <div class="tile"><div class="k">Duur</div><div class="v">${hhmm(Math.round((Date.now()-a.start)/1000))}</div><div class="u">&nbsp;</div></div>
-        <div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>
-        <div class="tile"><div class="k">Sets</div><div class="v">${st.sets}</div><div class="u">werksets</div></div>
+        ${body?`<div class="tile"><div class="k">Oefeningen</div><div class="v">${st.oef}</div><div class="u">in het rijtje</div></div>`
+              :`<div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>`}
+        <div class="tile"><div class="k">${body?"Rondes":"Sets"}</div><div class="v">${st.sets}</div><div class="u">${body?"afgevinkt":"werksets"}</div></div>
         <div class="tile"><div class="k">Reps</div><div class="v">${st.reps}</div><div class="u">totaal</div></div>
       </div>
       <div class="card${prs.length?" pr-pop":""}">
@@ -2134,7 +2162,10 @@ const Log={
   render(V){
     this.bewerk=false;                       // bewerkstand niet meeslepen naar de lijst
     const ss=allSessions();
-    head("Logboek", ss.length?`${ss.length} trainingen · sinds ${dShort(ss[ss.length-1].date)}`:"");
+    const nBody=ss.filter(s=>soortVan(s)==="body").length;
+    head("Logboek", ss.length
+      ? `${ss.length} workouts${nBody?` · ${ss.length-nBody} gym, ${nBody} body`:""} · sinds ${dShort(ss[ss.length-1].date)}`
+      : "");
     if(!ss.length){
       V.innerHTML=`<div class="card"><div class="empty"><div class="big">Nog niets gelogd</div>
         <p>Start je eerste training, of haal je bestaande logboek uit Excel of Notities binnen via Meer → Importeren.</p></div></div>`;
@@ -2169,11 +2200,15 @@ const Log={
             const vaag=/^(training|ge[iï]mporteerd|workout)$/i.test((s.name||"").trim());
             const eigenNaam = vaag ? "" : (s.name||"");
             const records=prs[s.id]||0;
+            // Gym of body meteen zichtbaar: een circuit van 20 minuten en een
+            // uur bankdrukken staan anders door elkaar zonder dat je het ziet.
+            const srt=soortVan(s);
             return `<button class="li" type="button" onclick="go('sessie','${s.id}')">
               <div class="li-main"><b>${esc(titel)}</b>
-                <span>${dShort(s.date)}${eigenNaam?" · "+esc(eigenNaam):""} · ${st.oef} ${st.oef===1?"oefening":"oefeningen"} · ${st.sets} sets</span>
+                <span>${dShort(s.date)}${eigenNaam?" · "+esc(eigenNaam):""} · ${st.oef} ${st.oef===1?"oefening":"oefeningen"} · ${st.sets} ${srt==="body"?"rondes":"sets"}</span>
                 ${top&&top.w?`<span class="num" style="color:var(--ink-2);font-size:12.5px">zwaarst: ${esc(top.naam)} ${setTekst(top.w,top.r,true)}</span>`:""}
               </div>
+              <span class="chip ${srt==="body"?"acc":""}">${SOORTNAAM[srt]}</span>
               ${records?`<span class="chip good">${records>1?records+"× ":""}PR</span>`:""}
               <div class="chev"></div></button>`;
           }).join("")+`</div>`;
@@ -2226,15 +2261,19 @@ const Log={
     if(!s){ go("log"); return; }
     const st=sessionStats(s);
     const b=this.bewerk;
-    head(this.groepNaam(s),dLong(s.date),
+    head(this.groepNaam(s),`${SOORTNAAM[soortVan(s)]}workout · ${dLong(s.date)}`,
       `<div style="display:flex;gap:6px">
          <button class="btn sm ghost" type="button" onclick="go('log')">Terug</button>
          <button class="btn sm ${b?"primary":""}" type="button" onclick="Log.togBewerk()">${b?"Klaar":"Bewerk"}</button>
        </div>`);
+    // Bij een bodyworkout draait alles om rondes en tijd; een volumetegel van
+    // 0 kg zegt daar niets, dus die laten we weg.
+    const body=soortVan(s)==="body";
     V.innerHTML=`
       <div class="tiles">
-        <div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>
-        <div class="tile"><div class="k">Sets</div><div class="v">${st.sets}</div><div class="u">werksets</div></div>
+        ${body?`<div class="tile"><div class="k">Oefeningen</div><div class="v">${st.oef}</div><div class="u">in het rijtje</div></div>`
+              :`<div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>`}
+        <div class="tile"><div class="k">${body?"Rondes":"Sets"}</div><div class="v">${st.sets}</div><div class="u">${body?"afgevinkt":"werksets"}</div></div>
         <div class="tile"><div class="k">Reps</div><div class="v">${st.reps}</div><div class="u">totaal</div></div>
         <div class="tile"><div class="k">Duur</div><div class="v">${st.dur?hhmm(st.dur):"–"}</div><div class="u">&nbsp;</div></div>
       </div>
@@ -2253,7 +2292,8 @@ const Log={
             <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
             <button class="ex-more" type="button" onclick="${b?`Log.exMenu('${s.id}',${i})`:`go('oefening','${e.exId}')`}"
               aria-label="${b?"Opties":"Voortgang"}">${b?"⋯":"→"}</button></div>
-          <div class="setgrid head"><span>Set</span><span>Reps</span><span>Kg</span><span></span></div>
+          <div class="setgrid head"><span>${body?"Ronde":"Set"}</span>
+            <span>${e.sets.length&&e.sets.every(x=>x.sec)?"Sec":"Reps"}</span><span>Kg</span><span></span></div>
           ${e.sets.map((x,j)=>{
             const nr=e.sets.slice(0,j+1).filter(y=>y.t!=="warmup").length;
             const kleur=x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":"";
