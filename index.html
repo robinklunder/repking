@@ -532,7 +532,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="5 sep 2026 - 13:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="29 sep 2026 - 10:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -564,6 +564,8 @@ const DB={
       routines:[],
       sessions:[],
       weights:[],
+      profiel:null,        // Coach: leeftijd, doelen, dagen, blessures, eten
+      checkins:[],         // Coach: één korte vragenlijst per week
       active:null
     };
   },
@@ -864,15 +866,22 @@ const ICONS={
   log:'<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14h3M8 17h6"/>',
   prog:'<path d="M3 20h18M6 16l4-5 3.5 3L20 7"/><circle cx="20" cy="7" r="1.6"/>',
   tips:'<path d="M12 3a6 6 0 0 0-3.5 10.9c.6.5.9 1.1.9 1.8V17h5.2v-1.3c0-.7.3-1.3.9-1.8A6 6 0 0 0 12 3Z"/><path d="M10 20h4"/>',
+  coach:'<path d="M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   meer:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-2.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4Z"/>'
 };
-const TABS=[["train","Train"],["log","Logboek"],["prog","Voortgang"],["tips","Tips"],["meer","Meer"]];
+/* De Tips-tab is Coach geworden: het plan en de weekterugblik staan er bovenaan,
+   de tips uit je eigen cijfers staan er onderin. Zes tabbladen werd te vol. */
+const TABS=[["train","Train"],["log","Logboek"],["prog","Voortgang"],["coach","Coach"],["meer","Meer"]];
 let page="train", pageArg=null;
 function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrollTop=0; render(); }
 
+/* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
+   alsof je nergens meer bent. */
+const TAB_VAN={sessie:"log", oefening:"prog", intake:"coach", weekcheck:"coach", tips:"coach"};
 function renderTabs(){
+  const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
-    `<button class="tab ${page===k?"on":""}" type="button" onclick="go('${k}')" aria-label="${l}">
+    `<button class="tab ${actief===k?"on":""}" type="button" onclick="go('${k}')" aria-label="${l}">
        <svg viewBox="0 0 24 24">${ICONS[k]}</svg><span>${l}</span></button>`).join("");
 }
 
@@ -884,6 +893,9 @@ function render(){
   if(page==="train")      Train.render(V);
   else if(page==="log")   Log.render(V);
   else if(page==="prog")  Prog.render(V);
+  else if(page==="coach") Coach.render(V);
+  else if(page==="intake")Coach.intake(V);
+  else if(page==="weekcheck")Coach.weekcheckScherm(V);
   else if(page==="tips")  Tips.render(V);
   else if(page==="meer")  Meer.render(V);
   else if(page==="sessie")Log.detail(V,pageArg);
@@ -1322,11 +1334,22 @@ const Advies={
     }
     return uit.sort((a,b)=>b.score-a.score);
   },
+  /* Welke van de dagsoorten staat voorgeselecteerd? Heb je een plan in Coach
+     staan en is vandaag een trainingsdag, dan die — tenzij je zelf iets anders
+     hebt aangetikt. Jouw keuze wint altijd van het schema. */
+  handmatig:false,
+  index(opties){
+    if(!this.handmatig){
+      const plan=Coach.vandaagVolgensPlan();
+      if(plan){ const i=opties.findIndex(o=>o.dag.naam===plan); if(i>=0) return i; }
+    }
+    return Math.min(this.keuze,opties.length-1);
+  },
   voorstel(){
     const a=this.alle();
-    return a.length ? a[Math.min(this.keuze,a.length-1)] : null;
+    return a.length ? a[this.index(a)] : null;
   },
-  kies(i){ this.keuze=i; render(); },
+  kies(i){ this.keuze=i; this.handmatig=true; render(); },
 
   /* Per groep oefeningen kiezen: het liefst uit zijn eigen geschiedenis, en
      dan die hij het langst niet heeft gedaan. Heeft hij voor een groep nog
@@ -1428,9 +1451,10 @@ const Advies={
           Je hebt elke spiergroep net gehad. Spieren groeien tijdens het herstel, niet tijdens
           de set — een dag rust levert je nu meer op dan een training erbij.</p></div>
       </div>`;
-    const i=Math.min(this.keuze,opties.length-1);
+    const i=this.index(opties);
     const v=opties[i];
     const m=v.meting;
+    const plan=Coach.vandaagVolgensPlan();
     const reden=v.groepen.map(g=>{
       const u=m[g];
       if(u.dagen>=999) return `<b>${g}</b> heb je in geen vier weken getraind`;
@@ -1446,6 +1470,8 @@ const Advies={
             `<button type="button" class="${k===i?"on":""}" onclick="Advies.kies(${k})">${esc(o.dag.naam)}</button>`).join("")}</div>
         </div>`:""}
         <div style="padding:13px 14px 4px">
+          ${plan?`<p style="font-size:13px;color:var(--accent);font-weight:650;margin-bottom:6px">
+            Op je plan staat vandaag ${esc(plan)}${plan===v.dag.naam?"":" — je cijfers wijzen een andere kant op"}.</p>`:""}
           <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${reden}.</p>
         </div>
         <div style="padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px">
@@ -2663,6 +2689,645 @@ const Prog={
 /* ============================================================================
    TIPS — regelgebaseerde analyse van je eigen data
    ============================================================================ */
+/* ============================================================================
+   COACH — je profiel, je plan en je wekelijkse terugblik
+
+   Wat dit wél is: jouw gegevens door gangbare richtlijnen gehaald, en elke week
+   je eigen cijfers naast elkaar. Alles rekent hier in de app, er gaat niets
+   naar internet. Dat is precies waarom het ook werkt zonder bereik.
+
+   Wat dit níét is: een pratende coach. Er zit geen taalmodel in dit bestand —
+   het kan geen open vragen beantwoorden. Daarvoor staat onderaan de knop
+   "Briefing kopiëren": die zet je profiel, je weekchecks en je trainingen in
+   één tekst die je in een gesprek met Claude plakt.
+
+   En het is geen medisch advies. Calorieën uit een formule zijn een startpunt,
+   geen waarheid; de weegschaal over drie weken is de echte meting.
+   ============================================================================ */
+const WEEKDAGEN=[["ma","Ma"],["di","Di"],["wo","Wo"],["do","Do"],["vr","Vr"],["za","Za"],["zo","Zo"]];
+const MATERIAAL=[["gym","Sportschool"],["barbell","Barbell & rek"],["dumbbell","Dumbbells"],
+                 ["kettlebell","Kettlebells"],["machines","Machines"],["kabel","Kabels"],
+                 ["bw","Lichaamsgewicht"],["cardio","Cardio-apparaat"]];
+const BLESSURES=[["schouder","Schouder"],["elleboog","Elleboog"],["pols","Pols"],["onderrug","Onderrug"],
+                 ["nek","Nek"],["heup","Heup"],["knie","Knie"],["enkel","Enkel"]];
+const DOELEN=[["spier","Spiermassa"],["sterker","Sterker worden"],["afvallen","Afvallen"],
+              ["fit","Fitter en gezonder"],["behoud","Behouden wat ik heb"]];
+/* Welke oefeningen belasten welk gewricht — voor de let-op-lijst bij blessures */
+const BLESSURE_LET_OP={
+  schouder:["Overhead press","Dumbbell shoulder press","Arnold press","Barbell bench press",
+            "Incline barbell press","Dips","Upright row","Lateral raise"],
+  elleboog:["Skullcrusher","Close-grip bench press","Triceps pushdown","Barbell curl","Dips"],
+  pols:    ["Front squat","Barbell curl","Push-up","Wrist curl","Clean"],
+  onderrug:["Deadlift","Barbell row","Good morning","Back squat","Romanian deadlift","Overhead press"],
+  nek:     ["Shrug","Upright row","Barbell row"],
+  heup:    ["Back squat","Hip thrust","Lunge","Bulgarian split squat","Romanian deadlift"],
+  knie:    ["Back squat","Front squat","Leg press","Lunge","Leg extension","Bulgarian split squat"],
+  enkel:   ["Standing calf raise","Lunge","Back squat","Loopband"]
+};
+
+const Coach={
+
+  /* ---- 1. Profiel ------------------------------------------------------- */
+  p(){ return DB.d.profiel; },
+
+  intake(V){
+    const p=DB.d.profiel||{};
+    head(p.gestart?"Profiel aanpassen":"Je profiel", "Hier komt je plan uit voort",
+      `<button class="btn sm ghost" type="button" onclick="go('coach')">Terug</button>`);
+    V.innerHTML=`
+      <div class="card card-pad">
+        <p class="mut" style="font-size:13.5px">Vul in wat je weet. Twijfel je over een getal, gok dan —
+          je kunt alles later aanpassen, en de weekcheck corrigeert de schattingen vanzelf.</p>
+      </div>
+
+      <div class="sec-label">Over jou</div>
+      <div class="card card-pad">
+        <div class="row">
+          <div class="field" style="flex:1"><label>Leeftijd</label>
+            <input class="ctrl num" id="pLeeftijd" inputmode="numeric" value="${p.leeftijd||""}" placeholder="jaar"></div>
+          <div class="field" style="flex:1"><label>Lengte (cm)</label>
+            <input class="ctrl num" id="pLengte" inputmode="numeric" value="${p.lengte||""}" placeholder="cm"></div>
+          <div class="field" style="flex:1"><label>Gewicht (kg)</label>
+            <input class="ctrl num" id="pGewicht" inputmode="decimal" value="${p.gewicht||""}" placeholder="kg"></div>
+        </div>
+        <div class="field"><label>Geslacht</label>
+          <div class="seg">
+            ${[["m","Man"],["v","Vrouw"],["x","Zeg ik liever niet"]].map(([k,l])=>
+              `<button type="button" class="${(p.geslacht||"m")===k?"on":""}" onclick="Coach.seg(this,'geslacht','${k}')">${l}</button>`).join("")}
+          </div>
+          <p class="mut" style="margin-top:6px;font-size:12px">Nodig voor de calorieformule. Kies je het derde,
+            dan reken ik met het gemiddelde van beide.</p></div>
+        <div class="field"><label>Hoe lang train je al serieus?</label>
+          <div class="seg">
+            ${[["begin","Minder dan 1 jaar"],["gevorderd","1 tot 3 jaar"],["ervaren","Langer"]].map(([k,l])=>
+              `<button type="button" class="${(p.niveau||"gevorderd")===k?"on":""}" onclick="Coach.seg(this,'niveau','${k}')">${l}</button>`).join("")}
+          </div></div>
+      </div>
+
+      <div class="sec-label">Wat wil je bereiken</div>
+      <div class="card card-pad">
+        <div class="field"><label>Doelen</label>
+          ${Meer.kiezer("pDoel",DOELEN,p.doelen||["spier"],"Het eerste doel dat je aantikt weegt het zwaarst in je plan.")}</div>
+        <div class="field"><label>Streefgewicht (kg) — mag leeg</label>
+          <input class="ctrl num" id="pDoelGew" inputmode="decimal" value="${p.doelGewicht||""}" placeholder="geen streefgewicht"></div>
+      </div>
+
+      <div class="sec-label">Je week</div>
+      <div class="card card-pad">
+        <div class="field"><label>Op welke dagen kun je trainen?</label>
+          ${Meer.kiezer("pDagen",WEEKDAGEN,p.dagen||["ma","wo","vr"],"Tik de dagen aan die meestal lukken.")}</div>
+        <div class="field"><label>Hoeveel minuten heb je per keer?</label>
+          <input class="ctrl num" id="pMinuten" inputmode="numeric" value="${p.minuten||60}" placeholder="60"></div>
+        <div class="field"><label>Wat heb je tot je beschikking?</label>
+          ${Meer.kiezer("pMateriaal",MATERIAAL,p.materiaal||["gym"],"Alles wat je kunt gebruiken.")}</div>
+      </div>
+
+      <div class="sec-label">Herstel en gezondheid</div>
+      <div class="card card-pad">
+        <div class="field"><label>Hoeveel uur slaap je gemiddeld?</label>
+          <input class="ctrl num" id="pSlaap" inputmode="decimal" value="${p.slaap||""}" placeholder="bijv. 7"></div>
+        <div class="field"><label>Blessures of gevoelige plekken</label>
+          ${Meer.kiezer("pBlessures",BLESSURES,p.blessures||[],"Niets aan? Laat ze dan allemaal uit staan.",true)}</div>
+        <div class="field"><label>Toelichting bij je blessures — mag leeg</label>
+          <textarea class="ctrl" id="pBlessureTekst" placeholder="bijv. linkerschouder gaat mis bij overhead">${esc(p.blessureTekst||"")}</textarea></div>
+      </div>
+
+      <div class="sec-label">Eten en drinken</div>
+      <div class="card card-pad">
+        <div class="field"><label>Hoeveel eetmomenten heb je per dag?</label>
+          <input class="ctrl num" id="pMaaltijden" inputmode="numeric" value="${p.maaltijden||3}"></div>
+        <div class="field"><label>Hoe eet je nu?</label>
+          <div class="seg">
+            ${[["rommelig","Rommelig"],["redelijk","Redelijk"],["strak","Strak"]].map(([k,l])=>
+              `<button type="button" class="${(p.eten||"redelijk")===k?"on":""}" onclick="Coach.seg(this,'eten','${k}')">${l}</button>`).join("")}
+          </div></div>
+        <div class="field"><label>Iets wat ik moet weten over je eten — mag leeg</label>
+          <textarea class="ctrl" id="pEtenTekst" placeholder="bijv. vegetarisch, geen ontbijt, veel onderweg">${esc(p.etenTekst||"")}</textarea></div>
+      </div>
+
+      <button class="btn primary lg wide" type="button" onclick="Coach.intakeSave()">Plan maken</button>
+      ${p.gestart?`<button class="btn danger wide" type="button" onclick="Coach.wis()">Profiel verwijderen</button>`:""}
+      <p class="mut" style="padding:0 4px 8px">Dit blijft op je telefoon staan, net als je trainingen.</p>`;
+  },
+  /* Eén knop uit een segment aanzetten en de keuze onthouden tot je opslaat */
+  _seg:{},
+  seg(btn,veld,waarde){
+    this._seg[veld]=waarde;
+    [...btn.parentElement.children].forEach(b=>b.classList.toggle("on",b===btn));
+  },
+  segWaarde(veld,terugval){ return this._seg[veld]!==undefined ? this._seg[veld] : terugval; },
+
+  intakeSave(){
+    const getal=(id,t)=>{ const el=$(id); if(!el) return t;
+      const v=parseFloat(String(el.value).replace(",",".")); return isNaN(v)?t:v; };
+    const oud=DB.d.profiel||{};
+    const p={
+      gestart: oud.gestart||today(),
+      bijgewerkt: today(),
+      leeftijd: clamp(Math.round(getal("#pLeeftijd",oud.leeftijd||35)),12,100),
+      lengte:   clamp(Math.round(getal("#pLengte",oud.lengte||180)),120,230),
+      gewicht:  clamp(getal("#pGewicht",oud.gewicht||80),30,250),
+      geslacht: this.segWaarde("geslacht",oud.geslacht||"m"),
+      niveau:   this.segWaarde("niveau",oud.niveau||"gevorderd"),
+      doelen:   Meer.gekozen("pDoel",oud.doelen||["spier"]),
+      doelGewicht: getal("#pDoelGew",0)||null,
+      // op volgorde van de week, niet op de volgorde waarin je ze aantikte
+      dagen:    Meer.gekozen("pDagen",oud.dagen||["ma","wo","vr"])
+                    .sort((a,b)=>WEEKDAGEN.findIndex(w=>w[0]===a)-WEEKDAGEN.findIndex(w=>w[0]===b)),
+      minuten:  clamp(Math.round(getal("#pMinuten",oud.minuten||60)),15,180),
+      materiaal:Meer.gekozen("pMateriaal",oud.materiaal||["gym"]),
+      slaap:    clamp(getal("#pSlaap",oud.slaap||7),3,12),
+      blessures:Meer.gekozen("pBlessures",oud.blessures||[]),
+      blessureTekst: ($("#pBlessureTekst")||{}).value?.trim()||"",
+      maaltijden: clamp(Math.round(getal("#pMaaltijden",oud.maaltijden||3)),1,8),
+      eten:     this.segWaarde("eten",oud.eten||"redelijk"),
+      etenTekst: ($("#pEtenTekst")||{}).value?.trim()||""
+    };
+    DB.d.profiel=p;
+    // Je gewicht hoort ook in de gewichtsgrafiek, anders staat het op twee plekken
+    const vandaag=DB.d.weights.find(w=>w.date===today());
+    if(vandaag) vandaag.kg=p.gewicht; else DB.d.weights.push({date:today(),kg:p.gewicht});
+    this._seg={};
+    DB.save(); go("coach"); toast("Je plan staat klaar");
+  },
+  async wis(){
+    if(await ask("Profiel verwijderen?","Je plan en je weekchecks gaan weg. Je trainingen blijven staan.","Verwijderen",true)){
+      DB.d.profiel=null; DB.d.checkins=[]; DB.save(); go("coach"); toast("Verwijderd");
+    }
+  },
+
+  /* ---- 2. Rekenwerk ----------------------------------------------------- */
+  /* Ruststofwisseling volgens Mifflin-St Jeor: de formule die in de praktijk
+     het dichtst bij de meting komt. Een schatting blijft het. */
+  bmr(p){
+    const basis=10*p.gewicht + 6.25*p.lengte - 5*p.leeftijd;
+    if(p.geslacht==="m") return basis+5;
+    if(p.geslacht==="v") return basis-161;
+    return basis-78;                       // het midden als hij het niet zegt
+  },
+  /* Hoeveel je verbrandt: rust maal een factor voor hoe actief je week is */
+  onderhoud(p){
+    const d=p.dagen.length;
+    const f = d<=1?1.2 : d<=3?1.375 : d<=5?1.55 : 1.725;
+    return Math.round(this.bmr(p)*f);
+  },
+  hoofddoel(p){ return (p.doelen&&p.doelen[0])||"spier"; },
+  /* Calorieën en macro's. Afvallen op −20% (maar nooit meer dan 500 eraf),
+     spiermassa op +10%: sneller aankomen wordt vooral vet. */
+  voeding(p){
+    const ond=this.onderhoud(p), doel=this.hoofddoel(p);
+    let kcal=ond, richting="onderhoud";
+    if(doel==="afvallen"){ kcal=ond-Math.min(500,Math.round(ond*0.20)); richting="tekort"; }
+    else if(doel==="spier"){ kcal=ond+Math.min(300,Math.round(ond*0.10)); richting="overschot"; }
+    // Bij afvallen meer eiwit: dat houdt spier vast terwijl je in een tekort zit
+    const eiwitPer = doel==="afvallen"?2.0 : doel==="spier"?1.8 : 1.6;
+    const eiwit=Math.round(p.gewicht*eiwitPer);
+    const vet=Math.round(p.gewicht*0.8);
+    const kh=Math.max(0,Math.round((kcal - eiwit*4 - vet*9)/4));
+    return {onderhoud:ond, kcal:Math.round(kcal), richting, eiwit, vet, kh,
+            water:Math.round((p.gewicht*35 + p.dagen.length*500/7)/50)*50};
+  },
+  /* Hoeveel werksets per spiergroep per week. STREEF is het middenpad; wie net
+     begint heeft minder nodig en wie lang traint mag hoger zitten. */
+  streefSets(p){
+    const f = p.niveau==="begin"?0.7 : p.niveau==="ervaren"?1.2 : 1;
+    const uit={};
+    for(const g in STREEF) uit[g]=Math.round(STREEF[g]*f);
+    return uit;
+  },
+  /* Welke indeling past bij het aantal dagen dat je hebt? */
+  split(p){
+    const n=p.dagen.length, begin=p.niveau==="begin";
+    if(n<=1) return ["Hele lichaam"];
+    if(n===2) return ["Hele lichaam","Hele lichaam"];
+    if(n===3) return begin?["Hele lichaam","Hele lichaam","Hele lichaam"]:["Duwdag","Trekdag","Benendag"];
+    if(n===4) return ["Duwdag","Trekdag","Benendag","Bovenlichaam"];
+    if(n===5) return ["Duwdag","Trekdag","Benendag","Bovenlichaam","Onderlichaam"];
+    return ["Duwdag","Trekdag","Benendag","Duwdag","Trekdag","Benendag"];
+  },
+  /* Staat er vandaag iets op je plan? Geeft de naam van de dagsoort terug, of
+     niets als het vandaag een rustdag is. Het Train-scherm gebruikt dit om het
+     juiste voorstel voor te selecteren. */
+  vandaagVolgensPlan(){
+    const p=DB.d.profiel; if(!p||!p.dagen||!p.dagen.length) return null;
+    const vandaag=DAG[dParse(today()).getDay()];
+    const i=p.dagen.indexOf(vandaag);
+    return i<0 ? null : (this.split(p)[i]||null);
+  },
+  letOp(p){
+    const uit=new Set();
+    for(const b of (p.blessures||[])) for(const n of (BLESSURE_LET_OP[b]||[])) uit.add(n);
+    return [...uit];
+  },
+
+  /* ---- 3. Weekcheck ----------------------------------------------------- */
+  checks(){ return (DB.d.checkins||[]).slice().sort((a,b)=>a.week<b.week?-1:1); },
+  checkVan(wk){ return (DB.d.checkins||[]).find(c=>c.week===wk)||null; },
+  dezeWeek(){ return weekKey(today()); },
+
+  /* Wat de app zelf al weet over een week — dat hoeft hij niet in te tikken */
+  uitLog(wk){
+    const eind=addDays(wk,6);
+    let n=0, sets=0, vol=0, prs=0;
+    const prTel=Inspanning.prPerSessie();
+    for(const s of DB.d.sessions){
+      if(s.date<wk || s.date>eind) continue;
+      const st=sessionStats(s);
+      n++; sets+=st.sets; vol+=st.vol; prs+=prTel[s.id]||0;
+    }
+    return {sessies:n, sets, vol, prs};
+  },
+
+  weekcheckScherm(V){
+    const wk=this.dezeWeek(), c=this.checkVan(wk)||{};
+    const p=DB.d.profiel;
+    const log=this.uitLog(wk);
+    head("Weekcheck", `Week van ${dShort(wk)}`,
+      `<button class="btn sm ghost" type="button" onclick="go('coach')">Terug</button>`);
+    const schaal=(id,waarde,label,laag,hoog)=>`
+      <div class="field"><label>${label}</label>
+        <div class="seg">${[1,2,3,4,5].map(n=>
+          `<button type="button" class="${(waarde||3)===n?"on":""}" onclick="Coach.seg(this,'${id}','${n}')">${n}</button>`).join("")}</div>
+        <p class="mut" style="margin-top:6px;font-size:12px">1 = ${laag}, 5 = ${hoog}</p></div>`;
+    V.innerHTML=`
+      <div class="card card-pad">
+        <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">Je trainingen weet ik al:
+          <b>${log.sessies}</b> deze week, ${log.sets} werksets${log.prs?`, ${log.prs} ${log.prs===1?"record":"records"}`:""}.
+          De rest kan ik niet zien — dat vul jij hier in.</p>
+      </div>
+      <div class="card card-pad">
+        <div class="field"><label>Gewicht (kg)</label>
+          <input class="ctrl num" id="cGewicht" inputmode="decimal" value="${c.gewicht||(p?p.gewicht:"")}"></div>
+        <div class="field"><label>Hoeveel uur sliep je gemiddeld?</label>
+          <input class="ctrl num" id="cSlaap" inputmode="decimal" value="${c.slaap||(p?p.slaap:"")}"></div>
+        ${schaal("cEnergie",c.energie,"Energie","uitgeblust","topfit")}
+        ${schaal("cVoeding",c.voeding,"Hoe goed hield je je aan je eten?","kwam er niets van","precies zoals bedoeld")}
+        ${schaal("cStress",c.stress,"Stress en drukte","heel rustig","overvol")}
+        <div class="field"><label>Notitie — mag leeg</label>
+          <textarea class="ctrl" id="cNotitie" placeholder="Hoe voelde deze week?">${esc(c.notitie||"")}</textarea></div>
+      </div>
+      <button class="btn primary lg wide" type="button" onclick="Coach.checkSave()">Opslaan</button>`;
+  },
+  checkSave(){
+    const wk=this.dezeWeek();
+    const getal=(id,t)=>{ const el=$(id); if(!el) return t;
+      const v=parseFloat(String(el.value).replace(",",".")); return isNaN(v)?t:v; };
+    const oud=this.checkVan(wk)||{};
+    const c={
+      week:wk, datum:today(),
+      gewicht: getal("#cGewicht",oud.gewicht||null),
+      slaap:   getal("#cSlaap",oud.slaap||null),
+      energie: +this.segWaarde("cEnergie",oud.energie||3),
+      voeding: +this.segWaarde("cVoeding",oud.voeding||3),
+      stress:  +this.segWaarde("cStress",oud.stress||3),
+      notitie: ($("#cNotitie")||{}).value?.trim()||""
+    };
+    if(!DB.d.checkins) DB.d.checkins=[];
+    const i=DB.d.checkins.findIndex(x=>x.week===wk);
+    if(i>=0) DB.d.checkins[i]=c; else DB.d.checkins.push(c);
+    // gewicht ook in de grafiek
+    if(c.gewicht){
+      const w=DB.d.weights.find(x=>x.date===today());
+      if(w) w.kg=c.gewicht; else DB.d.weights.push({date:today(),kg:c.gewicht});
+      if(DB.d.profiel) DB.d.profiel.gewicht=c.gewicht;
+    }
+    this._seg={};
+    DB.save(); go("coach"); toast("Weekcheck opgeslagen");
+  },
+
+  /* ---- 4. Wekelijkse terugblik ------------------------------------------
+     Alles hieronder is vergelijken: deze week tegen vorige week, en het gewicht
+     over drie weken. Eén week zegt niets — je weegt zwaarder na een zoute
+     maaltijd — dus de gewichtsregel kijkt pas vanaf drie metingen.          */
+  review(){
+    const p=DB.d.profiel; if(!p) return null;
+    const cs=this.checks(); if(cs.length<2) return null;
+    const nu=cs[cs.length-1], vorig=cs[cs.length-2];
+    const doel=this.hoofddoel(p);
+    const werkt=[], stroefL=[], doenL=[];
+    /* Alles krijgt een rangnummer. Er komen makkelijk vijf punten tegelijk uit,
+       en vijf opdrachten betekent in de praktijk dat je er nul doet — dus
+       houden we onderaan alleen de belangrijkste over. Slaap gaat voorop:
+       zonder slaap heeft sleutelen aan calorieën geen zin. */
+    const stroef=(prio,t)=>stroefL.push({prio,t});
+    const doen  =(prio,t)=>doenL.push({prio,t});
+
+    // gewicht: tempo over de laatste drie weken
+    const metGew=cs.filter(c=>c.gewicht).slice(-3);
+    let tempo=null;
+    if(metGew.length>=3){
+      const weken=(dParse(metGew[metGew.length-1].week)-dParse(metGew[0].week))/6048e5;
+      if(weken>0) tempo=(metGew[metGew.length-1].gewicht-metGew[0].gewicht)/weken;
+    }
+    if(tempo!==null){
+      const t=Math.abs(tempo);
+      if(doel==="afvallen"){
+        if(tempo<=-0.25 && tempo>=-1.0) werkt.push(`Je valt ${nf(t)} kg per week af. Dat is een tempo dat je vol kunt houden.`);
+        else if(tempo>-0.1){ stroef(4,`Je gewicht staat stil terwijl je wilt afvallen.`);
+          doen(4,`Haal er <b>200 kcal</b> per dag af, of loop er drie wandelingen van een half uur bij. Niet allebei tegelijk — dan weet je niet wat werkte.`); }
+        else if(tempo<-1.0){ stroef(4,`Je valt ${nf(t)} kg per week af. Dat gaat hard; onder de streep gaat er dan ook spier af.`);
+          doen(4,`Eet er <b>200 kcal</b> per dag bij en kijk of je kracht terugkomt.`); }
+      } else if(doel==="spier"){
+        if(tempo>=0.1 && tempo<=0.4) werkt.push(`Je komt ${nf(t)} kg per week aan. Dat is het tempo waarbij het grootste deel spier is.`);
+        else if(tempo<0.05){ stroef(4,`Je gewicht beweegt niet omhoog, terwijl je spiermassa wilt.`);
+          doen(4,`Eet er <b>250 kcal</b> per dag bij, het makkelijkst als een extra eetmoment na je training.`); }
+        else if(tempo>0.5){ stroef(4,`Je komt ${nf(t)} kg per week aan. Daarvan is een flink deel vet.`);
+          doen(4,`Haal er <b>250 kcal</b> per dag af.`); }
+      } else {
+        if(t<=0.2) werkt.push(`Je gewicht blijft stabiel, precies wat je wilt.`);
+      }
+    }
+
+    // trainingen tegenover je plan
+    const logNu=this.uitLog(nu.week), logVorig=this.uitLog(vorig.week);
+    const plan=p.dagen.length;
+    if(logNu.sessies>=plan) werkt.push(`Je deed ${logNu.sessies} ${logNu.sessies===1?"workout":"workouts"} — je plan van ${plan} gehaald.`);
+    else if(logNu.sessies<=plan-2){
+      stroef(2,`Je plan staat op ${plan} workouts, je deed er ${logNu.sessies}.`);
+      doen(2,logNu.sessies===0
+        ? `Zet één vaste dag vast en houd die heilig. Eén workout per week die altijd doorgaat is meer waard dan vier die je mist.`
+        : `Zet je plan op <b>${Math.max(1,logNu.sessies+1)} dagen</b>. Een plan dat je haalt werkt beter dan een plan dat mooi staat.`);
+    }
+
+    // kracht
+    if(logNu.prs>0) werkt.push(`${logNu.prs} ${logNu.prs===1?"record":"records"} deze week — je wordt sterker.`);
+    if(logVorig.sets>0){
+      const d=Math.round((logNu.sets/logVorig.sets-1)*100);
+      if(d>=40 && logNu.sets>10){
+        stroef(3,`Je sets sprongen met ${d}% omhoog ten opzichte van vorige week.`);
+        doen(3,`Bouw op met hooguit 10% per week. Te snel is precies hoe je twee keer eerder geblesseerd raakte.`);
+      }
+    }
+
+    // slaap en energie
+    const slaapNu=nu.slaap||0;
+    if(slaapNu && slaapNu<6.5){
+      stroef(1,`Je sliep ${nf(slaapNu)} uur per nacht. Onder de zeven uur kost je dat kracht en herstel.`);
+      doen(1,`Ga deze week een half uur eerder naar bed. Dat levert je meer op dan welke aanpassing in je schema ook.`);
+    } else if(slaapNu>=7.5) werkt.push(`Je slaapt ${nf(slaapNu)} uur — dat is waar je herstel vandaan komt.`);
+    if(nu.energie<=2){
+      stroef(2,`Je energie stond op ${nu.energie} van de 5.`);
+      if(slaapNu>=7) doen(2,`Neem een rustigere week: dezelfde oefeningen, ongeveer een derde minder sets. Daarna ga je er meestal harder doorheen.`);
+    } else if(nu.energie>=4 && vorig.energie<=3) werkt.push(`Je energie ging van ${vorig.energie} naar ${nu.energie}.`);
+
+    // voeding
+    if(nu.voeding<=2 && vorig.voeding<=2){
+      stroef(5,`Twee weken op rij lukte het eten niet zoals bedoeld.`);
+      doen(5,`Laat de calorieën even los en houd alleen je eiwit bij. Eén doel is makkelijker vol te houden dan vijf.`);
+    } else if(nu.voeding>=4) werkt.push(`Je eten lag op ${nu.voeding} van de 5.`);
+
+    const opRang=a=>a.slice().sort((x,y)=>x.prio-y.prio).map(x=>x.t);
+    return {nu, vorig, log:logNu, weken:cs.length,
+            werkt: werkt.slice(0,3),
+            stroef: opRang(stroefL).slice(0,3),
+            doen: opRang(doenL).slice(0,2)};
+  },
+
+  /* ---- 5. Het scherm ---------------------------------------------------- */
+  render(V){
+    const p=DB.d.profiel;
+    if(!p) return this.welkom(V);
+
+    const v=this.voeding(p), split=this.split(p), sets=this.streefSets(p);
+    const wk=this.dezeWeek(), check=this.checkVan(wk);
+    const log=this.uitLog(wk), letop=this.letOp(p);
+    const doel=DOELEN.find(d=>d[0]===this.hoofddoel(p));
+    head("Coach", `${doel?doel[1]:"Plan"} · ${p.dagen.length} dagen per week`,
+      `<button class="btn sm ghost" type="button" onclick="go('intake')">Profiel</button>`);
+
+    V.innerHTML=`
+      ${check?"":`<div class="card">
+        <div class="card-head"><div class="card-title">Weekcheck</div><span class="chip warn">open</span></div>
+        <div style="padding:13px 14px 15px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">Deze week nog niet ingevuld.
+            Twee minuten werk, en het is de enige manier waarop ik kan zien of je plan werkt.</p>
+          <button class="btn primary wide" style="margin-top:11px" type="button" onclick="go('weekcheck')">Invullen</button>
+        </div></div>`}
+
+      ${this.reviewKaart()}
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Deze week</div>
+          <span class="chip ${log.sessies>=p.dagen.length?"good":""}">${log.sessies} van ${p.dagen.length}</span></div>
+        <div style="padding:12px 14px;display:flex;flex-direction:column;gap:7px">
+          ${p.dagen.map((d,i)=>{
+            const naam=WEEKDAGEN.find(w=>w[0]===d);
+            return `<div style="display:flex;align-items:center;gap:10px">
+              <span style="width:34px;flex:none;font-size:12.5px;font-weight:700;color:var(--ink-2)">${naam?naam[1]:d}</span>
+              <span style="flex:1;font-size:14.5px">${split[i]||"Hele lichaam"}</span>
+              <span class="num" style="font-size:12px;color:var(--ink-3)">${p.minuten} min</span>
+            </div>`;
+          }).join("")}
+          <div style="height:1px;background:var(--line);margin:4px 0"></div>
+          <p class="mut" style="font-size:12.5px">Rustdagen zijn geen verloren dagen: je spieren groeien daar.
+            Wandelen, fietsen en rekken mogen gewoon.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Eten en drinken</div>
+          <span class="chip ${v.richting==="tekort"?"acc":v.richting==="overschot"?"good":""}">${v.richting}</span></div>
+        <div class="tiles" style="border:0;border-radius:0">
+          <div class="tile"><div class="k">Calorieën</div><div class="v">${v.kcal}</div><div class="u">per dag</div></div>
+          <div class="tile"><div class="k">Eiwit</div><div class="v">${v.eiwit}</div><div class="u">gram</div></div>
+          <div class="tile"><div class="k">Vet</div><div class="v">${v.vet}</div><div class="u">gram</div></div>
+          <div class="tile"><div class="k">Koolhydraten</div><div class="v">${v.kh}</div><div class="u">gram</div></div>
+        </div>
+        <div style="padding:12px 14px 14px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">Je verbrandt naar schatting
+            <b class="num" style="color:var(--ink)">${v.onderhoud}</b> kcal per dag. Water:
+            <b class="num" style="color:var(--ink)">${(v.water/1000).toFixed(1).replace(".",",")}</b> liter,
+            meer als het warm is of je zwaar traint.</p>
+          <p class="mut" style="font-size:12.5px;margin-top:8px">Dit is een formule, geen meting. Klopt je gewicht
+            over drie weken niet met je doel, dan past de weekcheck het getal aan — niet andersom.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Slaap en herstel</div></div>
+        <div style="padding:13px 14px 15px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Streef naar <b>7 tot 9 uur</b>${p.slaap?` — je gaf ${nf(p.slaap)} uur op${p.slaap<7?", daar valt dus winst te halen":""}`:""}.
+            Houd minstens één dag per week helemaal vrij, en schakel elke zes tot acht weken een week terug
+            in sets: dat is geen luiheid maar onderdeel van het opbouwen.</p>
+        </div>
+      </div>
+
+      ${letop.length?`<div class="card">
+        <div class="card-head"><div class="card-title">Let op bij jouw klachten</div>
+          <span class="chip warn">${(p.blessures||[]).length}</span></div>
+        <div style="padding:13px 14px 15px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">Deze oefeningen belasten wat bij jou gevoelig is:
+            <b>${letop.slice(0,8).map(esc).join(", ")}</b>${letop.length>8?" en nog een paar":""}.
+            Ze zijn niet verboden — doe ze lichter, met minder bereik, of kies een variant die niet prikt.</p>
+          ${p.blessureTekst?`<p class="mut" style="margin-top:9px">Jouw notitie: ${esc(p.blessureTekst)}</p>`:""}
+          <p class="mut" style="margin-top:9px">Houdt pijn aan of straalt het uit, ga dan langs een arts of fysio.
+            Dit is een app, geen diagnose.</p>
+        </div></div>`:""}
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Sets per week</div><span class="chip">streef</span></div>
+        <div style="padding:12px 14px;display:flex;flex-direction:column;gap:7px">
+          ${(()=>{ const nu=setsPerGroup(7);
+            return Object.keys(sets).map(g=>{
+              const d=nu[g]||0, pct=clamp(d/sets[g]*100,0,100);
+              const kleur = d>=sets[g]?"var(--good)":(d>=sets[g]*0.5?"var(--accent)":"var(--bad)");
+              return `<div style="display:flex;align-items:center;gap:10px">
+                <span style="width:88px;flex:none;font-size:12.5px;color:var(--ink-2)">${g}</span>
+                <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+                  <i style="display:block;height:100%;width:${pct}%;background:${kleur};border-radius:99px"></i></div>
+                <span class="num" style="width:46px;text-align:right;font-size:12px;color:var(--ink-3)">${d}/${sets[g]}</span>
+              </div>`;
+            }).join("");
+          })()}
+        </div>
+      </div>
+
+      ${check?`<div class="card">
+        <div class="card-head"><div class="card-title">Weekcheck</div>
+          <span class="chip good">ingevuld</span></div>
+        <div style="padding:12px 14px 14px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            ${check.gewicht?`${nf(check.gewicht)} kg · `:""}${check.slaap?`${nf(check.slaap)} uur slaap · `:""}energie ${check.energie}/5 · eten ${check.voeding}/5</p>
+          <button class="btn wide" style="margin-top:11px" type="button" onclick="go('weekcheck')">Aanpassen</button>
+        </div></div>`:""}
+
+      ${this.tipsKaart()}
+
+      <button class="btn wide" type="button" onclick="Coach.briefing()">Briefing kopiëren voor Claude</button>
+      <p class="mut" style="padding:0 4px 8px">Dit plan komt uit gangbare richtlijnen en jouw eigen cijfers.
+        Het is geen medisch advies — bij klachten of twijfel is een arts of diëtist de juiste persoon.</p>`;
+  },
+
+  /* De tips uit je eigen cijfers, die eerst een eigen tabblad hadden */
+  tipsKaart(){
+    if(DB.d.sessions.length<3) return "";
+    const tips=Tips.analyse();
+    if(!tips.length) return "";
+    return `<div class="sec-label">Signalen uit je cijfers</div>
+      <div class="card">${tips.map(t=>`
+        <div class="tip">
+          <div class="tip-bar ${t.k}"></div>
+          <div class="tip-main">
+            <div class="tip-top"><span class="chip ${t.k}">${t.label}</span></div>
+            <b>${esc(t.titel)}</b><p>${t.tekst}</p>
+            ${t.doe?`<div class="do">${t.doe}</div>`:""}
+          </div>
+        </div>`).join("")}</div>`;
+  },
+
+  welkom(V){
+    head("Coach","Nog geen profiel");
+    V.innerHTML=`
+      <div class="card">
+        <div class="card-head"><div class="card-title">Persoonlijk plan</div></div>
+        <div style="padding:13px 14px 16px">
+          <p style="font-size:14.5px;line-height:1.6;color:var(--ink-2)">Vertel me wie je bent en wat je wilt,
+            dan maak ik er een plan van: hoeveel je per week traint en wat, hoeveel je zou moeten eten en drinken,
+            hoeveel slaap je nodig hebt, en waar je op moet letten met je blessures.</p>
+          <p style="font-size:14.5px;line-height:1.6;color:var(--ink-2);margin-top:10px">Daarna vul je elke week
+            één kort formulier in — gewicht, slaap, energie, hoe het eten ging. Je trainingen weet de app al.
+            Uit die twee dingen samen komt elke week een terugblik: wat werkt, wat niet, en wat je aanpast.</p>
+          <button class="btn primary lg wide" style="margin-top:14px" type="button" onclick="go('intake')">Beginnen</button>
+        </div>
+      </div>
+      <div class="card card-pad">
+        <p class="mut">Alles blijft op je telefoon. Er gaat niets naar internet — daarom werkt het ook in de kelder
+          van de sportschool zonder bereik.</p>
+      </div>
+      ${this.tipsKaart()}`;
+  },
+
+  reviewKaart(){
+    const r=this.review();
+    if(!r){
+      const n=this.checks().length;
+      return `<div class="card card-pad"><p class="mut">Na je tweede weekcheck verschijnt hier je terugblik:
+        wat werkt, wat niet, en wat je aanpast. ${n===1?"Nog één week te gaan.":""}</p></div>`;
+    }
+    return `
+      <div class="card">
+        <div class="card-head"><div class="card-title">Terugblik op je week</div>
+          <span class="chip">week ${r.weken}</span></div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:10px">
+          ${r.werkt.length?`<div>
+            <div class="chip good" style="margin-bottom:7px">dit werkt</div>
+            ${r.werkt.map(t=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2);margin-top:4px">${t}</p>`).join("")}
+          </div>`:""}
+          ${r.stroef.length?`<div>
+            <div class="chip warn" style="margin-bottom:7px">hier loopt het stroef</div>
+            ${r.stroef.map(t=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2);margin-top:4px">${t}</p>`).join("")}
+          </div>`:""}
+          ${r.doen.length?`<div>
+            <div class="chip acc" style="margin-bottom:7px">doe dit deze week</div>
+            ${r.doen.map(t=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2);margin-top:4px">${t}</p>`).join("")}
+          </div>`:""}
+          ${(!r.werkt.length&&!r.stroef.length)?`<p style="font-size:14.5px;color:var(--ink-2)">Niets bijzonders deze week.
+            Zo doorgaan is ook een uitkomst.</p>`:""}
+        </div>
+      </div>`;
+  },
+
+  /* ---- 6. Briefing voor een gesprek met Claude ---------------------------
+     De app kan geen open vragen beantwoorden. Dit zet alles wat ze weet in één
+     tekst, zodat je die kunt plakken in een gesprek en daar wél kunt doorvragen. */
+  briefingTekst(){
+    const p=DB.d.profiel; if(!p) return "";
+    const v=this.voeding(p);
+    const r=[];
+    r.push(`MIJN PROFIEL (uit Rep King, ${dLong(today())})`);
+    r.push(`${p.leeftijd} jaar, ${p.lengte} cm, ${nf(p.gewicht)} kg${p.doelGewicht?`, streefgewicht ${nf(p.doelGewicht)} kg`:""}.`);
+    r.push(`Niveau: ${({begin:"minder dan 1 jaar",gevorderd:"1 tot 3 jaar",ervaren:"langer dan 3 jaar"})[p.niveau]} serieus trainen.`);
+    r.push(`Doelen: ${(p.doelen||[]).map(d=>(DOELEN.find(x=>x[0]===d)||[,d])[1]).join(", ")}.`);
+    r.push(`Ik train ${p.dagen.length} dagen per week (${p.dagen.join(", ")}), ${p.minuten} minuten per keer.`);
+    r.push(`Beschikbaar: ${(p.materiaal||[]).map(m=>(MATERIAAL.find(x=>x[0]===m)||[,m])[1]).join(", ")}.`);
+    r.push(`Slaap: ongeveer ${nf(p.slaap)} uur. Eten: ${p.maaltijden} eetmomenten, ${p.eten}.`);
+    if(p.etenTekst) r.push(`Over mijn eten: ${p.etenTekst}`);
+    const bl=(p.blessures||[]).map(b=>(BLESSURES.find(x=>x[0]===b)||[,b])[1]);
+    r.push(`Blessures: ${bl.length?bl.join(", "):"geen"}.${p.blessureTekst?" "+p.blessureTekst:""}`);
+    r.push(`Berekend plan: ${v.kcal} kcal (${v.richting}), ${v.eiwit} g eiwit, ${v.vet} g vet, ${v.kh} g koolhydraten, ${(v.water/1000).toFixed(1)} liter water.`);
+
+    const cs=this.checks().slice(-6);
+    if(cs.length){
+      r.push("");
+      r.push("WEEKCHECKS (nieuwste onderaan)");
+      for(const c of cs){
+        const l=this.uitLog(c.week);
+        r.push(`- week ${dShort(c.week)}: ${c.gewicht?nf(c.gewicht)+" kg, ":""}${c.slaap?nf(c.slaap)+" u slaap, ":""}energie ${c.energie}/5, eten ${c.voeding}/5, stress ${c.stress}/5 — ${l.sessies} workouts, ${l.sets} sets${l.prs?`, ${l.prs} PR`:""}${c.notitie?` (${c.notitie})`:""}`);
+      }
+    }
+    const ss=allSessions().slice(0,8);
+    if(ss.length){
+      r.push("");
+      r.push("LAATSTE WORKOUTS");
+      for(const s of ss){
+        const st=sessionStats(s), top=Log.hoofdoefening(s);
+        r.push(`- ${dShort(s.date)} ${Log.groepNaam(s)} (${SOORTNAAM[soortVan(s)]}): ${st.sets} sets${top&&top.w?`, zwaarst ${setTekst(top.w,top.r,true)} ${top.naam}`:""}`);
+      }
+    }
+    r.push("");
+    r.push("Kijk hiernaar als mijn coach: wat gaat goed, wat moet anders, en wat zou je de komende weken veranderen?");
+    return r.join("\n");
+  },
+  briefing(){
+    const t=this.briefingTekst();
+    if(!t) return toast("Vul eerst je profiel in");
+    Sheet.open("Briefing voor Claude",`
+      <p class="mut">Kopieer deze tekst en plak hem in een gesprek. Daar kun je wél doorvragen —
+        de app zelf kan dat niet, er zit geen taalmodel in.</p>
+      <textarea class="ctrl" id="brTekst" style="height:240px;font-size:12.5px">${esc(t)}</textarea>
+      <button class="btn primary wide" type="button" onclick="Coach.kopieer()">Kopiëren</button>`);
+  },
+  kopieer(){
+    const el=$("#brTekst"); if(!el) return;
+    el.select(); el.setSelectionRange(0,999999);
+    let ok=false;
+    try{ ok=document.execCommand("copy"); }catch(e){}
+    if(!ok && navigator.clipboard){ navigator.clipboard.writeText(el.value).then(()=>toast("Gekopieerd")); return; }
+    toast(ok?"Gekopieerd":"Selecteer de tekst en kopieer hem zelf");
+  }
+};
+
 const Tips={
   render(V){
     head("Tips","Gebaseerd op wat je hebt gelogd");
@@ -2952,11 +3617,15 @@ const Meer={
      waarin je tikt telt: de eerste is de hoofdgroep. Die staat op het chipje bij
      de oefening en bepaalt onder welk kopje hij in de lijst staat. De rest telt
      gewoon mee in je weekoverzicht en in het trainingsvoorstel.              */
-  _sel:{}, _lab:{},
-  kiezer(id,opties,gekozen){
+  _sel:{}, _lab:{}, _hint:{}, _leeg:{},
+  /* `hint` overschrijft het regeltje eronder, `magLeeg` laat toe dat je alles
+     uitzet — handig voor blessures: geen enkele is het beste antwoord. */
+  kiezer(id,opties,gekozen,hint,magLeeg){
     const geldig=gekozen.filter(v=>opties.some(o=>o[0]===v));
-    this._sel[id]=geldig.length?geldig.slice():[opties[0][0]];
+    this._sel[id]= geldig.length ? geldig.slice() : (magLeeg?[]:[opties[0][0]]);
     this._lab[id]=Object.fromEntries(opties);
+    this._hint[id]=hint||null;
+    this._leeg[id]=!!magLeeg;
     return `<div class="multi" id="${id}">${opties.map(([v,l])=>
       `<button type="button" data-v="${v}"
          class="${this._sel[id].indexOf(v)>=0?"on":""}${(this._sel[id].length>1&&this._sel[id][0]===v)?" eerste":""}"
@@ -2967,7 +3636,7 @@ const Meer={
     const a=this._sel[id]||[];
     const i=a.indexOf(v);
     if(i>=0){
-      if(a.length===1) return toast("Er moet er minstens één aanstaan");
+      if(a.length===1 && !this._leeg[id]) return toast("Er moet er minstens één aanstaan");
       a.splice(i,1);
     } else a.push(v);
     // Alle knopjes opnieuw kleuren, want de eerste keuze kan verschoven zijn
@@ -2980,13 +3649,15 @@ const Meer={
     const h=$("#"+id+"_h"); if(h) h.textContent=this.hint(id);
   },
   hint(id){
+    if(this._hint[id]) return this._hint[id];
     const a=this._sel[id]||[], L=this._lab[id]||{};
     if(a.length<2) return "Tik er meer aan als de oefening er meerdere raakt.";
     return "Hoofd: "+(L[a[0]]||a[0])+" — de rest telt mee in je weekoverzicht.";
   },
   gekozen(id,terugval){
     const a=this._sel[id];
-    return (a&&a.length)?a.slice():terugval.slice();
+    if(a && (a.length || this._leeg[id])) return a.slice();
+    return terugval.slice();
   },
   exArch(id){ exById(id).arch=true; DB.save(); Sheet.close(); toast("Verborgen"); render(); },
   togVoorstel(id,btn){
