@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="11 okt 2026 - 17:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="11 okt 2026 - 17:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -756,6 +756,62 @@ function bestOf(sets){
   }
   return b;
 }
+/* ---------- Persoonlijke records ---------------------------------------
+   Drie soorten, in gewone taal:
+
+     gewicht      — zwaarder getild dan ooit bij deze oefening
+     herhalingen  — meer herhalingen op dit gewicht (of zwaarder) dan ooit
+     sets         — meer werksets in één training dan ooit
+
+   Waarom "op dit gewicht of zwaarder" en niet gewoon het meeste aantal
+   herhalingen? Omdat 4 × 100 anders nooit een record zou zijn zolang er ooit
+   15 × 40 in het logboek staat. En waarom geen geschat 1RM meer: dat getal
+   wilde hij niet zien, en het gaf rare uitkomsten.
+
+   Sets op tijd (plank, farmer's hold) doen niet mee — daar zijn seconden de
+   maat, geen kilo's.                                                       */
+function recordsUit(nuSets, eerder, maxSetsEerder){
+  const nu=nuSets.filter(s=>isWork(s) && !s.sec);
+  if(!nu.length || !eerder.length) return [];          // de eerste keer is geen record
+  const uit=[];
+
+  const oudZwaarst=Math.max(0,...eerder.map(s=>s.w||0));
+  const zwaarsteNu=nu.reduce((a,s)=>
+    ((s.w||0)>(a.w||0) || ((s.w||0)===(a.w||0) && (s.r||0)>(a.r||0))) ? s : a, nu[0]);
+
+  if((zwaarsteNu.w||0)>oudZwaarst && zwaarsteNu.w){
+    uit.push({soort:"gewicht", set:zwaarsteNu, was:oudZwaarst,
+      tekst:`zwaarste ooit — ${setTekst(zwaarsteNu.w,zwaarsteNu.r,true,zwaarsteNu.bw)}${oudZwaarst?` (was ${nf(oudZwaarst)} kg)`:""}`});
+  } else {
+    // Geen zwaarder gewicht? Dan kijken we of je er meer uit hebt geperst.
+    let best=null;
+    for(const s of nu){
+      const oud=Math.max(0,...eerder.filter(x=>(x.w||0)>=(s.w||0)).map(x=>x.r||0));
+      if((s.r||0)>oud && (!best || s.r>best.set.r)) best={set:s, was:oud};
+    }
+    if(best) uit.push({soort:"herhalingen", set:best.set, was:best.was,
+      tekst:`meeste herhalingen ${best.set.bw&&!best.set.w?"op eigen gewicht":`op ${nf(best.set.w)} kg`} — ${setTekst(best.set.w,best.set.r,true,best.set.bw)} (was ${best.was})`});
+  }
+
+  // Van twee naar drie sets is geen prestatie om te vieren; vanaf drie wel.
+  if(nu.length>maxSetsEerder && nu.length>=3)
+    uit.push({soort:"sets", aantal:nu.length, was:maxSetsEerder,
+      tekst:`meeste sets in één training — ${nu.length} (was ${maxSetsEerder})`});
+
+  return uit;
+}
+/* Dezelfde test, maar met de geschiedenis er zelf bij gezocht */
+function recordsVoor(exId, sets, exclSessionId){
+  const h=historyFor(exId,exclSessionId);
+  const eerder=[]; let maxSets=0;
+  for(const d of h){
+    const w=d.sets.filter(s=>!s.sec);
+    if(w.length>maxSets) maxSets=w.length;
+    eerder.push(...w);
+  }
+  return recordsUit(sets, eerder, maxSets);
+}
+
 /* Records voor een oefening op basis van alle geschiedenis */
 function prFor(exId,excludeSessionId){
   const h=historyFor(exId,excludeSessionId);
@@ -1075,20 +1131,21 @@ const Inspanning={
     return {index, delen, nu, gem, basis:eerder.length, soort, woord:SOORTWOORD[soort]};
   },
 
-  /* Per training: hoeveel persoonlijke records vielen erin?
-     Eén doorloop op datum, met een lopend beste geschat 1RM per oefening.  */
+  /* Per training: hoeveel persoonlijke records vielen erin? Eén doorloop op
+     datum, waarbij we per oefening alle eerdere sets meeslepen — dezelfde
+     test als `recordsUit`, maar dan in één keer over je hele logboek. */
   prPerSessie(){
-    const beste={}, uit={};
+    const eerder={}, maxSets={}, uit={};
     const opDatum=DB.d.sessions.slice().sort((a,b)=>a.date<b.date?-1:1);
     for(const s of opDatum){
       let n=0;
       for(const e of s.entries){
-        const w=e.sets.filter(isWork);
+        const w=e.sets.filter(x=>isWork(x) && !x.sec);
         if(!w.length) continue;
-        const top=bestOf(w).e1;
-        if(top<=0) continue;
-        if(beste[e.exId]===undefined){ beste[e.exId]=top; continue; }  // eerste keer is geen record
-        if(top>beste[e.exId]+0.05){ n++; beste[e.exId]=top; }
+        if(!eerder[e.exId]){ eerder[e.exId]=[]; maxSets[e.exId]=0; }
+        n+=recordsUit(w, eerder[e.exId], maxSets[e.exId]).length;
+        eerder[e.exId].push(...w);
+        if(w.length>maxSets[e.exId]) maxSets[e.exId]=w.length;
       }
       uit[s.id]=n;
     }
@@ -2053,13 +2110,11 @@ const Train={
     DB.save();
   },
   checkPR(exId,s,sessId){
-    if(s.t==="warmup"||s.sec||!s.w||!s.r) return null;
-    const pr=prFor(exId,sessId);
-    if(!pr.sessies) return null;
-    const e=e1rm(s.w,s.r);
-    if(e>pr.e1+0.05) return `Record! ${setTekst(s.w,s.r,true)} — je beste ooit`;
-    if(s.w>pr.zwaarst) return `Zwaarste ooit: ${nf(s.w)} kg`;
-    return null;
+    // Alleen deze ene set: het set-record gaat over de hele training, en die
+    // is op dit moment nog niet klaar.
+    if(s.t==="warmup"||s.sec||!s.r) return null;
+    const r=recordsVoor(exId,[s],sessId).filter(x=>x.soort!=="sets");
+    return r.length ? "Record! "+r[0].tekst : null;
   },
   addSet(i,type){
     const e=DB.d.active.entries[i];
@@ -2177,18 +2232,11 @@ const Train={
     // 3. records
     const prs=[];
     for(const e of a.entries){
-      const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
-      const w=e.sets.filter(isWork); if(!w.length) continue;
-      const b=bestOf(w);
-      if(b.e1>pr.e1+0.05) prs.push({naam:exName(e.exId), w:b.w, r:b.r, bw:b.set&&b.set.bw, vorig:pr.zwaarst});
+      for(const r of recordsVoor(e.exId,e.sets,a.id))
+        prs.push(`<b>${esc(exName(e.exId))}</b> — ${r.tekst}`);
     }
     if(prs.length){
-      const lijst=prs.map(p=>
-        p.w>p.vorig
-          ? `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true,p.bw)} — zwaarder dan je ooit deed (was ${nf(p.vorig)} kg)`
-          : `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true,p.bw)} — je beste tot nu toe op deze oefening`
-      );
-      zinnen.push((prs.length===1?"Eén record":`${prs.length} records`)+": "+lijst.join(", en ")+".");
+      zinnen.push((prs.length===1?"Eén record":`${prs.length} records`)+": "+prs.join(", en ")+".");
     } else {
       zinnen.push("Geen records vandaag — die vallen ook niet elke keer, en dat hoeft niet.");
     }
@@ -2231,11 +2279,7 @@ const Train={
       return;
     }
     const prs=[];
-    for(const e of a.entries){
-      const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
-      const b=bestOf(e.sets.filter(isWork));
-      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true,b.set&&b.set.bw)}`);
-    }
+    for(const e of a.entries) prs.push(...recordsVoor(e.exId,e.sets,a.id));
     const body=soortVan(a)==="body";
     Sheet.open("Workout afronden",`
       <div class="tiles">
@@ -2316,10 +2360,8 @@ const Train={
     // records van vandaag
     const prs=[];
     for(const e of a.entries){
-      const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
-      const w=e.sets.filter(isWork); if(!w.length) continue;
-      const b=bestOf(w);
-      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} ${setTekst(b.w,b.r,true,b.set&&b.set.bw)}`);
+      for(const rec of recordsVoor(e.exId,e.sets,a.id))
+        prs.push(`${exName(e.exId)} — ${rec.tekst}`);
     }
     if(prs.length) r.push(`Record: ${prs.join(" · ")}`);
 
