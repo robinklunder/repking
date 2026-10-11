@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="29 sep 2026 - 15:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="11 okt 2026 - 16:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -595,6 +595,31 @@ function toast(msg,ms=2100){
   const t=$("#toast"); t.textContent=msg; t.classList.add("on");
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove("on"),ms);
 }
+/* De inhoud van een tekstvak naar het klembord. navigator.clipboard is de
+   moderne weg en werkt op iOS het betrouwbaarst, maar bestaat alleen op een
+   beveiligde verbinding; execCommand is de terugval voor het geval dat. Blijft
+   het mislukken, dan laten we de tekst geselecteerd staan zodat hij alleen nog
+   op Kopiëren hoeft te tikken. */
+function kopieerVeld(sel,gelukt){
+  const el=$(sel); if(!el) return;
+  const klaar=()=>toast(gelukt||"Gekopieerd");
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(el.value).then(klaar).catch(()=>oudeManier());
+    return;
+  }
+  oudeManier();
+  function oudeManier(){
+    const was=el.hasAttribute("readonly");
+    el.removeAttribute("readonly");                 // iOS kopieert niet uit een readonly veld
+    el.focus(); el.select();
+    try{ el.setSelectionRange(0,el.value.length); }catch(e){}
+    let ok=false;
+    try{ ok=document.execCommand("copy"); }catch(e){}
+    if(was) el.setAttribute("readonly","readonly");
+    toast(ok ? (gelukt||"Gekopieerd") : "Tik nu op Kopiëren in het menu dat verschijnt");
+  }
+}
+
 /* Melding met een knop erin, voor dingen die je meteen terug wilt kunnen
    draaien. Blijft wat langer staan dan een gewone melding. */
 function toastActie(msg,label,fn,ms=6000){
@@ -824,8 +849,12 @@ const CV={
     for(let i=0;i<=3;i++){
       const v=y0+(y1-y0)*i/3, y=Math.round(Y(v))+0.5;
       c.beginPath(); c.moveTo(padL,y); c.lineTo(w-padR,y); c.stroke();
-      c.textAlign="right"; c.textBaseline="middle";
-      c.fillText(Math.round(v),padL-6,y);
+      // Bij een krachtlijn zetten we geen getallen langs de as: daar staat een
+      // berekende waarde, geen gewicht dat hij echt heeft getild.
+      if(!opt.geenY){
+        c.textAlign="right"; c.textBaseline="middle";
+        c.fillText(Math.round(v),padL-6,y);
+      }
     }
     // vlak
     const grad=c.createLinearGradient(0,padT,0,h-padB);
@@ -889,15 +918,16 @@ const ICONS={
   coach:'<path d="M12 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8Z"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   meer:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.5-2.6l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4Z"/>'
 };
-/* De Tips-tab is Coach geworden: het plan en de weekterugblik staan er bovenaan,
-   de tips uit je eigen cijfers staan er onderin. Zes tabbladen werd te vol. */
-const TABS=[["train","Train"],["log","Logboek"],["prog","Voortgang"],["coach","Coach"],["meer","Meer"]];
+/* Coach is er weer uit: Robin gebruikte het niet. Het blok staat nog wel in dit
+   bestand, maar is nergens meer aangesloten — net als Maatje. Wil je het terug,
+   dan zet je hier "coach" in plaats van "tips" en de routes in render() terug. */
+const TABS=[["train","Train"],["log","Logboek"],["prog","Voortgang"],["tips","Tips"],["meer","Meer"]];
 let page="train", pageArg=null;
 function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrollTop=0; render(); }
 
 /* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
    alsof je nergens meer bent. */
-const TAB_VAN={sessie:"log", oefening:"prog", intake:"coach", weekcheck:"coach", tips:"coach"};
+const TAB_VAN={sessie:"log", oefening:"prog"};
 function renderTabs(){
   const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
@@ -983,9 +1013,6 @@ function render(){
   if(page==="train")      Train.render(V);
   else if(page==="log")   Log.render(V);
   else if(page==="prog")  Prog.render(V);
-  else if(page==="coach") Coach.render(V);
-  else if(page==="intake")Coach.intake(V);
-  else if(page==="weekcheck")Coach.weekcheckScherm(V);
   else if(page==="tips")  Tips.render(V);
   else if(page==="meer")  Meer.render(V);
   else if(page==="sessie")Log.detail(V,pageArg);
@@ -1424,22 +1451,12 @@ const Advies={
     }
     return uit.sort((a,b)=>b.score-a.score);
   },
-  /* Welke van de dagsoorten staat voorgeselecteerd? Heb je een plan in Coach
-     staan en is vandaag een trainingsdag, dan die — tenzij je zelf iets anders
-     hebt aangetikt. Jouw keuze wint altijd van het schema. */
-  handmatig:false,
-  index(opties){
-    if(!this.handmatig){
-      const plan=Coach.vandaagVolgensPlan();
-      if(plan){ const i=opties.findIndex(o=>o.dag.naam===plan); if(i>=0) return i; }
-    }
-    return Math.min(this.keuze,opties.length-1);
-  },
+  index(opties){ return Math.min(this.keuze,opties.length-1); },
   voorstel(){
     const a=this.alle();
     return a.length ? a[this.index(a)] : null;
   },
-  kies(i){ this.keuze=i; this.handmatig=true; render(); },
+  kies(i){ this.keuze=i; render(); },
 
   /* Per groep oefeningen kiezen: het liefst uit zijn eigen geschiedenis, en
      dan die hij het langst niet heeft gedaan. Heeft hij voor een groep nog
@@ -1544,7 +1561,6 @@ const Advies={
     const i=this.index(opties);
     const v=opties[i];
     const m=v.meting;
-    const plan=Coach.vandaagVolgensPlan();
     const reden=v.groepen.map(g=>{
       const u=m[g];
       if(u.dagen>=999) return `<b>${g}</b> heb je in geen vier weken getraind`;
@@ -1560,8 +1576,6 @@ const Advies={
             `<button type="button" class="${k===i?"on":""}" onclick="Advies.kies(${k})">${esc(o.dag.naam)}</button>`).join("")}</div>
         </div>`:""}
         <div style="padding:13px 14px 4px">
-          ${plan?`<p style="font-size:13px;color:var(--accent);font-weight:650;margin-bottom:6px">
-            Op je plan staat vandaag ${esc(plan)}${plan===v.dag.naam?"":" — je cijfers wijzen een andere kant op"}.</p>`:""}
           <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${reden}.</p>
         </div>
         <div style="padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px">
@@ -2166,13 +2180,13 @@ const Train={
       const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
       const w=e.sets.filter(isWork); if(!w.length) continue;
       const b=bestOf(w);
-      if(b.e1>pr.e1+0.05) prs.push({naam:exName(e.exId), w:b.w, r:b.r, vorig:pr.zwaarst});
+      if(b.e1>pr.e1+0.05) prs.push({naam:exName(e.exId), w:b.w, r:b.r, bw:b.set&&b.set.bw, vorig:pr.zwaarst});
     }
     if(prs.length){
       const lijst=prs.map(p=>
         p.w>p.vorig
-          ? `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true)} — zwaarder dan je ooit deed (was ${nf(p.vorig)} kg)`
-          : `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true)} — je beste tot nu toe op deze oefening`
+          ? `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true,p.bw)} — zwaarder dan je ooit deed (was ${nf(p.vorig)} kg)`
+          : `<b>${esc(p.naam)}</b> ${setTekst(p.w,p.r,true,p.bw)} — je beste tot nu toe op deze oefening`
       );
       zinnen.push((prs.length===1?"Eén record":`${prs.length} records`)+": "+lijst.join(", en ")+".");
     } else {
@@ -2220,7 +2234,7 @@ const Train={
     for(const e of a.entries){
       const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
       const b=bestOf(e.sets.filter(isWork));
-      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true)}`);
+      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} — ${setTekst(b.w,b.r,true,b.set&&b.set.bw)}`);
     }
     const body=soortVan(a)==="body";
     Sheet.open("Workout afronden",`
@@ -2243,29 +2257,90 @@ const Train={
       <div class="field"><label>Notitie</label>
         <textarea class="ctrl" id="fNote" style="min-height:70px" placeholder="Hoe ging het?">${esc(a.notes||"")}</textarea></div>
       <div class="hr"></div>
-      <div class="sec-label">Van je Apple Watch · optioneel</div>
-      <div class="field"><label>Plak wat de opdracht op je klembord zette</label>
-        <textarea class="ctrl" id="fPlak" style="min-height:58px;font-size:12px"
-          placeholder="Plak hier — de velden hieronder vullen zichzelf"
-          oninput="Train.leesHorloge(this.value)"></textarea></div>
-      <div class="row">
-        <div class="field" style="flex:1"><label>Hartslag gem</label>
-          <input class="ctrl num" id="fHr" inputmode="numeric" placeholder="128"></div>
-        <div class="field" style="flex:1"><label>Max</label>
-          <input class="ctrl num" id="fHrMax" inputmode="numeric" placeholder="171"></div>
-        <div class="field" style="flex:1"><label>Kcal</label>
-          <input class="ctrl num" id="fKcal" inputmode="numeric" placeholder="512"></div>
-      </div>
+      <div class="sec-label">Voor Strava</div>
+      <button class="btn primary wide" type="button" onclick="Train.kopieerStrava()">Hele samenvatting kopiëren</button>
+      <p class="mut" style="margin:-2px 0 6px">Eén tik en alles staat op je klembord. Plak het in de
+        omschrijving van je Strava-activiteit.</p>
+      <textarea class="ctrl" id="fStrava" style="min-height:190px;font-size:12.5px;line-height:1.5"
+        readonly>${esc(this.stravaTekst(a))}</textarea>
+      <div class="hr"></div>
+      <div class="field"><label>Verbrande calorieën — optioneel</label>
+        <input class="ctrl num" id="fKcal" inputmode="numeric" placeholder="512"></div>
       <button class="btn primary lg wide" type="button" onclick="Train.save()">Opslaan</button>`);
   },
-  /* Vult de horlogevelden vanuit geplakte tekst */
-  leesHorloge(txt){
-    const r=Inspanning.lees(txt);
-    if(r.gem)  $("#fHr").value=r.gem;
-    if(r.max)  $("#fHrMax").value=r.max;
-    if(r.kcal) $("#fKcal").value=r.kcal;
-    if(r.gem||r.max||r.kcal) toast("Cijfers overgenomen");
+
+  /* ---- De tekst die hij in Strava plakt ----------------------------------
+     Platte tekst, geen opmaak: Strava doet niets met vetgedrukt of met
+     opsommingstekens. Per oefening al zijn sets, met tussen haakjes wat hij
+     de vorige keer deed, zodat hij in één oogopslag ziet of hij vooruit is
+     gegaan. Onderaan de vergelijking met zijn vorige workouts.            */
+  stravaTekst(a){
+    const st=sessionStats(a);
+    const sec=Math.round((Date.now()-a.start)/1000);
+    const body=soortVan(a)==="body";
+    const r=[];
+    r.push(`${Log.groepNaam(a)} · ${hhmm(sec)}`);
+    r.push("");
+
+    /* Eén set in woorden. Een set op tijd is geen "45 × BW" maar 45 seconden,
+       en bij louter kilo's zetten we de eenheid één keer achteraan in plaats
+       van achter elke set. */
+    const setTxt=s=>{
+      if(s.sec) return `${s.r} sec${s.w?` × ${nf(s.w)} kg`:""}`;
+      return setTekst(s.w,s.r,true,s.bw);
+    };
+    const reeks=sets=>{
+      const kaal = sets.every(s=>!s.sec && !s.bw && s.w);
+      return kaal ? sets.map(s=>setTekst(s.w,s.r,false,false)).join(", ")+" kg"
+                  : sets.map(setTxt).join(", ");
+    };
+
+    for(const e of a.entries){
+      const w=e.sets.filter(isWork); if(!w.length) continue;
+      const h=historyFor(e.exId,a.id);
+      const vorige=h[h.length-1];
+      let staart=" (eerste keer)";
+      if(vorige){
+        const bNu=bestOf(w), bOud=bestOf(vorige.sets);
+        const pijl = bNu.e1>bOud.e1*1.01 ? " ↑" : (bNu.e1<bOud.e1*0.99 ? " ↓" : " =");
+        // alleen de beste set van vorige keer, anders wordt de regel onleesbaar
+        const beste = bOud.set || vorige.sets[0];
+        staart = pijl + (beste ? ` (vorige: ${setTxt(beste)})` : "");
+      }
+      r.push(`${exName(e.exId)}: ${reeks(w)}${staart}`);
+    }
+
+    r.push("");
+    const regel=[`${st.sets} ${body?"rondes":"werksets"}`];
+    if(!body && st.vol) regel.push(`${nf(Math.round(st.vol))} kg totaal`);
+    if(st.reps) regel.push(`${st.reps} herhalingen`);
+    r.push(regel.join(" · "));
+
+    // records van vandaag
+    const prs=[];
+    for(const e of a.entries){
+      const pr=prFor(e.exId,a.id); if(!pr.sessies) continue;
+      const w=e.sets.filter(isWork); if(!w.length) continue;
+      const b=bestOf(w);
+      if(b.e1>pr.e1+0.05) prs.push(`${exName(e.exId)} ${setTekst(b.w,b.r,true,b.set&&b.set.bw)}`);
+    }
+    if(prs.length) r.push(`Record: ${prs.join(" · ")}`);
+
+    // en hoe deze workout zich verhoudt tot de vorige
+    const v=Inspanning.vergelijk(a);
+    if(v){
+      const p=v.index-100;
+      r.push(Math.abs(p)<5
+        ? `Even zwaar als mijn vorige ${v.basis} ${v.woord}.`
+        : `${Math.abs(p)}% ${p>0?"zwaarder":"lichter"} dan mijn vorige ${v.basis} ${v.woord}.`);
+    }
+    return r.join("\n");
   },
+  /* Alles in één tik naar je klembord. Eerst de moderne manier — die werkt op
+     iOS het betrouwbaarst — en lukt dat niet, dan de oude truc met selecteren.
+     Allebei mislukt? Dan staat de tekst in elk geval geselecteerd, zodat je
+     alleen nog op Kopiëren hoeft te tikken. */
+  kopieerStrava(){ kopieerVeld("#fStrava","Gekopieerd — plak het in Strava"); },
 
   save(){
     const a=DB.d.active;
@@ -2274,14 +2349,8 @@ const Train={
     a.end=Date.now();
     // Bij een bodyworkout telt de stopwatch, niet de tijd sinds je hem aanmaakte
     if(a.soort==="body"){ const sec=Klok.verstreken(); a.start=a.end-sec*1000; }
-    const hrGem=parseInt($("#fHr").value,10)||null;
-    const hrMax=parseInt($("#fHrMax").value,10)||null;
-    const kcal =parseInt($("#fKcal").value,10)||null;
-    if(hrGem||hrMax) a.hr={gem:hrGem,max:hrMax};
+    const kcal =parseInt(($("#fKcal")||{}).value,10)||null;
     if(kcal) a.kcal=kcal;
-    // duur uit de opdracht gebruiken als de app zelf niet meeliep
-    const uitPlak=Inspanning.lees($("#fPlak")?$("#fPlak").value:"");
-    if(uitPlak.min && (!a.start || (a.end-a.start)/60000 < 2)) a.start=a.end-uitPlak.min*60000;
     a.entries=a.entries.filter(e=>e.sets.some(s=>s.done));
     a.entries.forEach(e=>e.sets=e.sets.filter(s=>s.done));
 
@@ -2775,12 +2844,18 @@ const Prog={
     });
   },
 
+  /* Ga je vooruit op deze oefening? Drie sessies tegen de drie daarvóór, en
+     per blok de béste — niet de eerste tegen de laatste. Eén lichte dag na een
+     zware single zei anders meteen "zakt", terwijl er niets aan de hand was.
+     Pas bij 4% verschil noemen we het iets; daartussen is het gewoon vlak. */
   trend(h){
-    if(h.length<3) return null;
-    const e=h.slice(-4).map(d=>bestOf(d.sets).e1);
-    const eerst=e[0], laatst=e[e.length-1];
-    if(laatst>eerst*1.02) return {k:"good",t:"↑ groeit"};
-    if(laatst<eerst*0.97) return {k:"bad",t:"↓ zakt"};
+    if(h.length<6) return null;
+    const e=h.map(d=>bestOf(d.sets).e1).filter(v=>v>0);
+    if(e.length<6) return null;
+    const nu=Math.max(...e.slice(-3)), eerder=Math.max(...e.slice(-6,-3));
+    if(!eerder) return null;
+    if(nu>eerder*1.04) return {k:"good",t:"↑ groeit"};
+    if(nu<eerder*0.96) return {k:"bad",t:"↓ zakt"};
     return {k:"warn",t:"→ vlak"};
   },
 
@@ -2791,8 +2866,12 @@ const Prog={
       `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
     if(!h.length){ V.innerHTML=`<div class="card"><div class="empty"><p>Nog niet gelogd.</p></div></div>`; return; }
 
-    // Zwaarste set per sessie — dat is wat hij herkent, en wat hij echt heeft getild
-    const pts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.max(...d.sets.map(s=>s.w||0))}))
+    /* Deze lijn telt herhalingen mee. Alleen het zwaarste gewicht tekenen gaf
+       een verkeerd beeld: na één keer 105 kg zag vier keer 100 kg eruit als
+       achteruitgang, terwijl dat juist sterker is. Er staan bewust geen
+       getallen langs de as — het is een verhouding, geen gewicht dat hij
+       getild heeft. De echte sets staan in de tabel eronder.               */
+    const pts=h.map(d=>({x:dParse(d.date).getTime(),y:bestOf(d.sets).e1}))
                 .filter(p=>p.y>0);
     const volPts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.round(bestOf(d.sets).vol)}));
 
@@ -2803,9 +2882,12 @@ const Prog={
         <div class="tile"><div class="k">Sessies</div><div class="v">${h.length}</div><div class="u">gelogd</div></div>
       </div>
       <div class="card">
-        <div class="card-head"><div class="card-title">Zwaarste set per training</div>
-          <span class="chip ${(this.trend(h)||{k:""}).k}">${(this.trend(h)||{t:"nieuw"}).t}</span></div>
+        <div class="card-head"><div class="card-title">Kracht per training</div>
+          <span class="chip ${(this.trend(h)||{k:""}).k}">${(this.trend(h)||{t:"nog te weinig"}).t}</span></div>
         <div class="chartwrap" style="padding:0 4px"><canvas id="cE1"></canvas></div>
+        <div style="padding:0 14px 13px"><p class="mut" style="font-size:12px">
+          Hoger is sterker. Herhalingen tellen mee, dus 4 × 100 kg staat hoger dan 1 × 105 kg.
+          Je echte sets staan onderin.</p></div>
       </div>
       <div class="card">
         <div class="card-head"><div class="card-title">Volume per sessie</div></div>
@@ -2824,7 +2906,7 @@ const Prog={
           }).join("")}</tbody></table></div>
       </div>`;
     window._charts.push(()=>{
-      const a=$("#cE1"); if(a) CV.line(a,pts,{l0:dShort(h[0].date),l1:dShort(h[h.length-1].date)});
+      const a=$("#cE1"); if(a) CV.line(a,pts,{l0:dShort(h[0].date),l1:dShort(h[h.length-1].date),geenY:true});
       const b=$("#cV2"); if(b) CV.line(b,volPts,{l0:dShort(h[0].date),l1:dShort(h[h.length-1].date)});
     });
   },
@@ -3535,15 +3617,25 @@ const Tips={
     }
     const belangrijk=Object.entries(tel).sort((a,b)=>b[1]-a[1]).slice(0,8).map(x=>x[0]);
     const stil=[]; let groeit=0;
+    /* Wanneer noemen we iets stilstand? Niet te snel. Een paar weken op
+       hetzelfde gewicht blijven hangen is normaal en gezond — dat heet een
+       plateau, geen probleem. Vandaar vier voorwaarden tegelijk:
+         1. minstens 8 sessies met deze oefening,
+         2. de laatste vier sessies vergeleken met de zes daarvóór,
+         3. dat venster beslaat minstens 8 weken,
+         4. je beste ooit is minstens 6 weken geleden.
+       En het moet écht omlaag zijn gegaan: "niet vooruit" is geen stilstand,
+       want met vier metingen tegen zes heeft het oudere blok sowieso meer
+       kans om een uitschieter te bevatten.                                 */
     for(const id of belangrijk){
       const h=historyFor(id);
-      if(h.length<6) continue;
+      if(h.length<8) continue;
       if(daysAgo(h[h.length-1].date)>28) continue;        // oefening doe je niet meer
       const e=h.map(d=>({d:d.date,v:bestOf(d.sets).e1})).filter(x=>x.v>0);
-      if(e.length<6) continue;
-      const nu=e.slice(-3), eerder=e.slice(-8,-3);
-      if(eerder.length<2) continue;
-      if(daysAgo(eerder[0].d)<28) continue;               // te kort om iets van te vinden
+      if(e.length<8) continue;
+      const nu=e.slice(-4), eerder=e.slice(-10,-4);
+      if(eerder.length<3) continue;
+      if(daysAgo(eerder[0].d)<56) continue;               // te kort om iets van te vinden
       const vNu=Math.max(...nu.map(x=>x.v)), vEerder=Math.max(...eerder.map(x=>x.v));
       const piek=Math.max(...e.map(x=>x.v));
       const piekDatum=e.filter(x=>x.v>=piek*0.9995)[0].d;
@@ -3713,8 +3805,11 @@ const Meer={
     const ex=DB.d.exercises.filter(e=>!e.arch)
       .sort((a,b)=>hg(a)===hg(b)?a.name.localeCompare(b.name):GROEPEN.indexOf(hg(a))-GROEPEN.indexOf(hg(b)));
     let cur="";
+    const dub=this.dubbelen();
+    const teveel=dub.groepen.length+dub.ongebruikt.length;
     Sheet.open("Oefeningen",`
       <button class="btn primary wide" type="button" onclick="Meer.exNew()">+ Nieuwe oefening</button>
+      ${teveel?`<button class="btn wide" type="button" onclick="Meer.dubbelScherm()">Dubbele opruimen · ${teveel}</button>`:""}
       ${ex.map(e=>{
         const kop = hg(e)!==cur ? (cur=hg(e), `<div class="sec-label">${cur}</div>`) : "";
         const h=historyFor(e.id);
@@ -3723,6 +3818,147 @@ const Meer={
           <div class="li-main"><b>${esc(e.name)}</b><span>${extra.length?"+ "+esc(extra.join(", "))+" · ":""}${h.length?h.length+" sessies":"nog niet gebruikt"}</span></div><div class="chev"></div></button></div>`;
       }).join("")}`);
   },
+  /* ---- Dubbele oefeningen opruimen ---------------------------------------
+     Twee soorten rommel in zijn lijst. Ten eerste standaardoefeningen uit de
+     bibliotheek die hij nooit gebruikt en die naast zijn eigen naam staan:
+     "Barbell bench press" (0 keer) naast "Bench press" (56 keer). Die kunnen
+     met één knop weg — er hangt geen enkele set aan.
+
+     Ten tweede namen die hij in zijn logboek verschillend heeft geschreven:
+     "Tricep rope pulldown" en "Tricep rope cable pulldown". Die samenvoegen
+     verplaatst echte sets, dus dat doe ik niet op eigen houtje. Hij kiest zelf
+     welke naam blijft; alles wat aan de andere hangt verhuist mee.          */
+  telGebruik(){
+    const t={};
+    for(const s of DB.d.sessions) for(const e of s.entries) t[e.exId]=(t[e.exId]||0)+1;
+    if(DB.d.active) for(const e of DB.d.active.entries) t[e.exId]=(t[e.exId]||0)+1;
+    return t;
+  },
+  /* Namen tot hun kern terugbrengen, zodat varianten op één hoop vallen.
+     Let op: dit is alleen om kandidaten te vínden, nooit om te beslissen. */
+  kern(naam){
+    return naam.toLowerCase()
+      .replace(/'/g," ").replace(/[^a-z0-9 ]/g," ")
+      .replace(/\b(the|met|op|a|an)\b/g," ")
+      .replace(/\b(barbell|bb|dumbbell|db|machine|cable|kabel|rope|v|bar|smith|seated|standing|single|one|arm|armed|wide|close|grip|neutral)\b/g," ")
+      .replace(/s\b/g,"")                       // meervoud en enkelvoud gelijktrekken
+      .replace(/\s+/g," ").trim();
+  },
+  dubbelen(){
+    const g=this.telGebruik();
+    const levend=DB.d.exercises.filter(e=>!e.arch);
+    const bak={};
+    for(const e of levend){
+      const k=this.kern(e.name); if(!k) continue;
+      (bak[k]=bak[k]||[]).push(e);
+    }
+    const groepen=[], ongebruikt=[];
+    for(const k in bak){
+      const lijst=bak[k]; if(lijst.length<2) continue;
+      const metHistorie=lijst.filter(e=>g[e.id]);
+      const zonder=lijst.filter(e=>!g[e.id]);
+      // staat er iets naast dat hij wél gebruikt? dan mag de ongebruikte weg
+      if(metHistorie.length && zonder.length) ongebruikt.push(...zonder);
+      if(metHistorie.length>1)
+        groepen.push({sleutel:k, items:metHistorie.map(e=>({id:e.id,naam:e.name,n:g[e.id]}))
+                                                 .sort((a,b)=>b.n-a.n)});
+    }
+    groepen.sort((a,b)=>b.items[0].n-a.items[0].n);
+    return {groepen, ongebruikt};
+  },
+  dubbelScherm(){
+    const {groepen,ongebruikt}=this.dubbelen();
+    Sheet.open("Dubbele oefeningen",`
+      <p class="mut">Hieronder staan oefeningen die op elkaar lijken. Ik voeg ze niet uit mezelf samen:
+        soms zijn het er twee die echt verschillen. Jij bepaalt.</p>
+      ${ongebruikt.length?`
+        <div class="notebox">${ongebruikt.length} oefeningen uit de standaardlijst staan naast een
+          oefening die je wél doet, en je hebt ze zelf nooit gebruikt.
+          Bijvoorbeeld <b>${esc(ongebruikt.slice(0,3).map(e=>e.name).join(", "))}</b>.</div>
+        <button class="btn primary wide" type="button" onclick="Meer.ruimOngebruikt()">
+          ${ongebruikt.length} ongebruikte uit de lijst halen</button>
+        <div class="hr"></div>`:""}
+      ${groepen.length? groepen.map((gr,i)=>this.dubGroep(gr,i)).join("")
+      : `<p class="mut">Geen namen gevonden die op elkaar lijken.</p>`}`);
+    this._keuze={};
+    groepen.forEach((gr,i)=>this._keuze["dub"+i]={blijft:gr.items[0].id, uit:[], items:gr.items});
+    groepen.forEach((gr,i)=>this.tekenGroep("dub"+i));
+  },
+  dubGroep(gr,i){
+    return `<div class="card" style="margin-bottom:10px" id="kaart_dub${i}">
+      <div class="list" id="dub${i}"></div>
+      <div style="padding:0 14px 13px">
+        <p class="mut" style="font-size:12px;margin-bottom:9px">Tik een naam aan om die te laten blijven.
+          Met de knop rechts haal je een oefening uit deze samenvoeging — handig als het er toch twee zijn
+          die echt verschillen.</p>
+        <button class="btn wide" type="button" onclick="Meer.voegSamen('dub${i}')">Samenvoegen</button>
+      </div></div>`;
+  },
+  tekenGroep(id){
+    const k=this._keuze[id], box=$("#"+id); if(!k||!box) return;
+    box.innerHTML=k.items.map(it=>{
+      const uit=k.uit.indexOf(it.id)>=0, blijft=k.blijft===it.id;
+      return `<div class="li" style="${uit?"opacity:.45":""}">
+        <button type="button" style="flex:1;min-width:0;text-align:left"
+          onclick="Meer.kiesBlijver('${id}','${it.id}')">
+          <div class="li-main"><b>${esc(it.naam)}</b>
+            <span>${it.n}× gelogd${blijft?" · deze naam blijft":(uit?" · doet niet mee":"")}</span></div>
+        </button>
+        ${blijft?`<span class="chip acc">blijft</span>`
+               :`<button class="btn sm ${uit?"":"ghost"}" type="button"
+                    onclick="Meer.dubUit('${id}','${it.id}')">${uit?"doe mee":"laat staan"}</button>`}
+      </div>`;
+    }).join("");
+  },
+  kiesBlijver(id,exId){
+    const k=this._keuze[id]; if(!k) return;
+    k.blijft=exId;
+    k.uit=k.uit.filter(x=>x!==exId);     // wat blijft, doet per definitie mee
+    this.tekenGroep(id);
+  },
+  dubUit(id,exId){
+    const k=this._keuze[id]; if(!k) return;
+    const i=k.uit.indexOf(exId);
+    if(i>=0) k.uit.splice(i,1); else k.uit.push(exId);
+    this.tekenGroep(id);
+  },
+  async voegSamen(id){
+    const k=this._keuze[id]; if(!k) return;
+    const blijft=k.blijft;
+    const weg=k.items.map(x=>x.id).filter(x=>x!==blijft && k.uit.indexOf(x)<0);
+    if(!weg.length) return toast("Er valt niets samen te voegen");
+    const namen=weg.map(x=>exName(x)).join(", ");
+    if(!await ask("Samenvoegen?",
+      `${namen} wordt ${exName(blijft)}. Al je sets blijven bewaard en verhuizen mee.`,"Samenvoegen")) return;
+    let verplaatst=0;
+    const lijsten=[...DB.d.sessions, ...(DB.d.active?[DB.d.active]:[])];
+    for(const s of lijsten){
+      for(const e of s.entries) if(weg.indexOf(e.exId)>=0){ e.exId=blijft; verplaatst++; }
+      // twee keer dezelfde oefening in één training? samenvoegen tot één blok
+      const gezien={};
+      s.entries=s.entries.filter(e=>{
+        if(gezien[e.exId]){ gezien[e.exId].sets.push(...e.sets); return false; }
+        gezien[e.exId]=e; return true;
+      });
+    }
+    for(const r of DB.d.routines) for(const it of r.items) if(weg.indexOf(it.exId)>=0) it.exId=blijft;
+    DB.d.exercises=DB.d.exercises.filter(e=>weg.indexOf(e.id)<0);
+    DB.save(); Sheet.close(); render();
+    toast(`Samengevoegd — ${verplaatst} ${verplaatst===1?"keer":"keer"} verplaatst`);
+    this.dubbelScherm();
+  },
+  async ruimOngebruikt(){
+    const {ongebruikt}=this.dubbelen();
+    if(!ongebruikt.length) return toast("Er staat niets ongebruikts dubbel");
+    if(!await ask("Uit de lijst halen?",
+      `${ongebruikt.length} oefeningen die je nooit hebt gebruikt verdwijnen uit je lijst. Er hangen geen sets aan.`,
+      "Weghalen")) return;
+    const ids=ongebruikt.map(e=>e.id);
+    DB.d.exercises=DB.d.exercises.filter(e=>ids.indexOf(e.id)<0);
+    DB.save(); Sheet.close(); render();
+    toast(`${ids.length} oefeningen weggehaald`);
+  },
+
   exNew(cb){
     Sheet.open("Nieuwe oefening",`
       <div class="field"><label>Naam</label><input class="ctrl" id="nName" placeholder="bijv. Pendlay row" autocomplete="off"></div>
