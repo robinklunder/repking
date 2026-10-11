@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="11 okt 2026 - 16:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="11 okt 2026 - 17:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -2263,9 +2263,6 @@ const Train={
         omschrijving van je Strava-activiteit.</p>
       <textarea class="ctrl" id="fStrava" style="min-height:190px;font-size:12.5px;line-height:1.5"
         readonly>${esc(this.stravaTekst(a))}</textarea>
-      <div class="hr"></div>
-      <div class="field"><label>Verbrande calorieën — optioneel</label>
-        <input class="ctrl num" id="fKcal" inputmode="numeric" placeholder="512"></div>
       <button class="btn primary lg wide" type="button" onclick="Train.save()">Opslaan</button>`);
   },
 
@@ -2349,8 +2346,8 @@ const Train={
     a.end=Date.now();
     // Bij een bodyworkout telt de stopwatch, niet de tijd sinds je hem aanmaakte
     if(a.soort==="body"){ const sec=Klok.verstreken(); a.start=a.end-sec*1000; }
-    const kcal =parseInt(($("#fKcal")||{}).value,10)||null;
-    if(kcal) a.kcal=kcal;
+    // Hartslag en calorieën worden hier niet meer gevraagd: die staan al in
+    // Strava. Oude trainingen die ze wél hebben, houden ze gewoon.
     a.entries=a.entries.filter(e=>e.sets.some(s=>s.done));
     a.entries.forEach(e=>e.sets=e.sets.filter(s=>s.done));
 
