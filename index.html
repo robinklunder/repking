@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 14:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 15:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -781,6 +781,7 @@ function recordsUit(nuSets, eerder, maxSetsEerder){
 
   if((zwaarsteNu.w||0)>oudZwaarst && zwaarsteNu.w){
     uit.push({soort:"gewicht", set:zwaarsteNu, was:oudZwaarst,
+      kort:`${setTekst(zwaarsteNu.w,zwaarsteNu.r,true,zwaarsteNu.bw)} (zwaarste ooit)`,
       tekst:`zwaarste ooit — ${setTekst(zwaarsteNu.w,zwaarsteNu.r,true,zwaarsteNu.bw)}${oudZwaarst?` (was ${nf(oudZwaarst)} kg)`:""}`});
   } else {
     // Geen zwaarder gewicht? Dan kijken we of je er meer uit hebt geperst.
@@ -790,12 +791,14 @@ function recordsUit(nuSets, eerder, maxSetsEerder){
       if((s.r||0)>oud && (!best || s.r>best.set.r)) best={set:s, was:oud};
     }
     if(best) uit.push({soort:"herhalingen", set:best.set, was:best.was,
+      kort:`${setTekst(best.set.w,best.set.r,true,best.set.bw)} (meeste herhalingen)`,
       tekst:`meeste herhalingen ${best.set.bw&&!best.set.w?"op eigen gewicht":`op ${nf(best.set.w)} kg`} — ${setTekst(best.set.w,best.set.r,true,best.set.bw)} (was ${best.was})`});
   }
 
   // Van twee naar drie sets is geen prestatie om te vieren; vanaf drie wel.
   if(nu.length>maxSetsEerder && nu.length>=3)
     uit.push({soort:"sets", aantal:nu.length, was:maxSetsEerder,
+      kort:`${nu.length} sets (meeste in één training)`,
       tekst:`meeste sets in één training — ${nu.length} (was ${maxSetsEerder})`});
 
   return uit;
@@ -2369,25 +2372,48 @@ const Train={
       if(s.sec) return `${s.r} sec${s.w?` × ${nf(s.w)} kg`:""}`;
       return setTekst(s.w,s.r,true,s.bw);
     };
+    /* Dezelfde set drie keer achter elkaar schrijven we als "3 × 80 (3×)".
+       Zonder dat werd één oefening een regel van drie regels in Strava. */
     const reeks=sets=>{
-      const kaal = sets.every(s=>!s.sec && !s.bw && s.w);
-      return kaal ? sets.map(s=>setTekst(s.w,s.r,false,false)).join(", ")+" kg"
-                  : sets.map(setTxt).join(", ");
+      const groepen=[];
+      for(const s of sets){
+        const t=setTxt(s), laatste=groepen[groepen.length-1];
+        if(laatste && laatste.t===t) laatste.n++; else groepen.push({t,n:1});
+      }
+      // De eenheid staat achter elke groep en de herhaling erachter: dan leest
+      // "8 × 24 kg (3×)" als één ding, in plaats van twee keer een maalteken
+      // die verschillende dingen betekenen.
+      return groepen.map(g=>g.n>1?`${g.t} (${g.n}×)`:g.t).join(", ");
+    };
+    /* Hoeveel werk zat er in een oefening? Kilo's maal herhalingen, en bij
+       oefeningen zonder gewicht de herhalingen zelf. Op dit cijfer vergelijken
+       we met de vorige keer — níét op de zwaarste set. Anders staat er een
+       pijl omlaag zodra je na één zware single een keer zes nette sets doet,
+       en dat is precies andersom. */
+    const werk=sets=>{
+      const v=sets.reduce((a,s)=>a+(s.sec?0:(s.w||0)*(s.r||0)),0);
+      return {vol:v, reps:sets.reduce((a,s)=>a+(s.sec?0:(s.r||0)),0)};
     };
 
     for(const e of a.entries){
       const w=e.sets.filter(isWork); if(!w.length) continue;
       const h=historyFor(e.exId,a.id);
       const vorige=h[h.length-1];
-      let staart=" (eerste keer)";
-      if(vorige){
-        const bNu=bestOf(w), bOud=bestOf(vorige.sets);
-        const pijl = bNu.e1>bOud.e1*1.01 ? " ↑" : (bNu.e1<bOud.e1*0.99 ? " ↓" : " =");
-        // alleen de beste set van vorige keer, anders wordt de regel onleesbaar
-        const beste = bOud.set || vorige.sets[0];
-        staart = pijl + (beste ? ` (vorige: ${setTxt(beste)})` : "");
+      // Een record zegt alles; dan hoeft er geen pijl meer bij. "↓ PR" op één
+      // regel leest alsof je tegelijk achteruit en vooruit ging.
+      let merk="";
+      if(recordsVoor(e.exId,e.sets,a.id).length) merk=" ⭐";
+      else if(!vorige) merk=" (nieuw)";
+      else {
+        const nuW=werk(w), oudW=werk(vorige.sets);
+        const nu = (nuW.vol&&oudW.vol) ? nuW.vol : nuW.reps;
+        const oud= (nuW.vol&&oudW.vol) ? oudW.vol : oudW.reps;
+        if(oud>0){
+          if(nu>=oud*1.05) merk=" ↑";
+          else if(nu<=oud*0.95) merk=" ↓";
+        }
       }
-      r.push(`${exName(e.exId)}: ${reeks(w)}${staart}`);
+      r.push(`${exName(e.exId)}: ${reeks(w)}${merk}`);
     }
 
     r.push("");
@@ -2400,14 +2426,21 @@ const Train={
     const prs=[];
     for(const e of a.entries){
       for(const rec of recordsVoor(e.exId,e.sets,a.id))
-        prs.push(`${exName(e.exId)} — ${rec.tekst}`);
+        prs.push(`${exName(e.exId)} — ${rec.kort||rec.tekst}`);
     }
-    if(prs.length) r.push(`Record: ${prs.join(" · ")}`);
+    // Elk record op een eigen regel: op één regel liep het in Strava over
+    // vier regels door en was er geen beginnen aan.
+    if(prs.length){
+      r.push("");
+      r.push(prs.length===1?"⭐ Record":"⭐ Records");
+      for(const p of prs) r.push(p);
+    }
 
     // en hoe deze workout zich verhoudt tot de vorige
     const v=Inspanning.vergelijk(a);
     if(v){
       const p=v.index-100;
+      r.push("");
       r.push(Math.abs(p)<5
         ? `Even zwaar als mijn vorige ${v.basis} ${v.woord}.`
         : `${Math.abs(p)}% ${p>0?"zwaarder":"lichter"} dan mijn vorige ${v.basis} ${v.woord}.`);
