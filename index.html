@@ -256,6 +256,11 @@ main > *{flex:0 0 auto}
 .sheet-head{display:flex;align-items:center;gap:10px;padding:12px 16px 10px;flex:none}
 .sheet-head h2{font-size:19px;font-weight:750;letter-spacing:-.02em;flex:1}
 .sheet-body{overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px 16px;display:flex;flex-direction:column;gap:12px}
+/* Zonder dit krimpen lange lijsten in een sheet tot platte balkjes: een
+   scrollende flexkolom perst zijn kinderen samen, en `.list` heeft
+   overflow:hidden, dus dan verdwijnt de tekst. Dezelfde fout zat ooit in
+   main#view — zie `main > *` hierboven. */
+.sheet-body > *{flex:0 0 auto}
 .x{width:32px;height:32px;border-radius:99px;display:grid;place-items:center;background:var(--surface-3);color:var(--ink-2);font-size:17px;flex:none;line-height:1}
 
 /* Formulier */
@@ -570,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 23:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 15:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
