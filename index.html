@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 15:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 16:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -4041,8 +4041,6 @@ const Meer={
         <button class="li" type="button" onclick="Meer.exportSheet()"><div class="li-main"><b>Exporteren &amp; back-up</b><span>${S().lastBackup?"Laatste: "+relDate(S().lastBackup):"Nog nooit gedaan"}</span></div><div class="chev"></div></button>
       </div>
       <div class="list">
-        <button class="li" type="button" onclick="Meer.strava()"><div class="li-main"><b>Strava inlezen</b><span>Hartslag, calorie&euml;n en inspanning uit je export</span></div><div class="chev"></div></button>
-        <button class="li" type="button" onclick="Meer.horloge()"><div class="li-main"><b>Apple Watch koppelen</b><span>Cijfers per training erbij zetten</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.settings()"><div class="li-main"><b>Instellingen</b><span>Thema en oefeningen</span></div><div class="chev"></div></button>
         <button class="li" type="button" onclick="Meer.about()"><div class="li-main"><b>Over deze app</b><span>Hoe het werkt, waar je data staat</span></div><div class="chev"></div></button>
       </div>
@@ -4388,120 +4386,6 @@ const Meer={
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
 
-  strava(){
-    Sheet.open("Strava inlezen",`
-      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
-        Strava kan niet rechtstreeks koppelen — daar is een inlogsleutel voor nodig die niet
-        veilig in een webpagina past. Maar je kunt je hele geschiedenis in één keer inlezen,
-        inclusief hartslag, calorieën en Strava's <b>Relatieve inspanning</b>.</p>
-
-      <div class="sec-label">Je bestand ophalen</div>
-      <ol style="font-size:14.5px;line-height:1.65;color:var(--ink-2);padding-left:20px;list-style:decimal">
-        <li>Ga op je computer naar <b>strava.com</b> → Instellingen → <b>Mijn account</b>.</li>
-        <li>Onderaan: <b>Een kopie van je gegevens downloaden</b>. Je krijgt per mail een zipbestand.</li>
-        <li>Pak het uit en open <b>activities.csv</b> in Kladblok of Excel.</li>
-        <li>Selecteer alles, kopieer, en plak het hieronder.</li>
-      </ol>
-
-      <div class="field"><label>Inhoud van activities.csv</label>
-        <textarea class="ctrl" id="stTxt" style="min-height:130px" placeholder="Plak hier…"></textarea></div>
-      <button class="btn primary wide" type="button" onclick="Meer.stravaLees()">Lees uit</button>
-      <div id="stOut"></div>`);
-  },
-
-  stravaLees(){
-    const txt=$("#stTxt").value;
-    if(!txt.trim()) return toast("Plak eerst je bestand");
-    const r=Imp.strava(txt);
-    if(!r.rijen.length){
-      $("#stOut").innerHTML=`<div class="hr"></div><div class="warnbox">${esc(r.over[0]||"Niets gevonden.")}</div>`;
-      return;
-    }
-    const k=Imp.stravaKoppel(r.rijen);
-    Meer._strava=k;
-    $("#stOut").innerHTML=`
-      <div class="hr"></div>
-      <div class="tiles">
-        <div class="tile"><div class="k">Activiteiten</div><div class="v">${r.rijen.length}</div><div class="u">in het bestand</div></div>
-        <div class="tile"><div class="k">Gekoppeld</div><div class="v">${k.raak.length}</div><div class="u">aan je trainingen</div></div>
-        <div class="tile"><div class="k">Geen match</div><div class="v">${k.mis.length}</div><div class="u">dagen</div></div>
-      </div>
-      ${k.raak.length?`
-        <div class="sec-label">Controleer</div>
-        <div class="card"><div class="scrollx"><table class="tbl">
-          <thead><tr><th>Datum</th><th>Strava</th><th class="n">Duur</th><th class="n">Hartslag</th><th class="n">Kcal</th></tr></thead>
-          <tbody>${k.raak.slice(0,14).map(({sess,act})=>`
-            <tr><td>${dShort(sess.date)}</td><td style="font-size:12px;color:var(--ink-3)">${esc(act.naam||act.type||"")}</td>
-              <td class="n">${act.dur?hhmm(act.dur):"–"}</td>
-              <td class="n">${act.hrGem?act.hrGem+(act.hrMax?"/"+act.hrMax:""):"–"}</td>
-              <td class="n">${act.kcal||"–"}</td></tr>`).join("")}</tbody>
-        </table></div></div>
-        ${k.raak.length>14?`<p class="mut">…en nog ${k.raak.length-14}.</p>`:""}
-        <button class="btn primary lg wide" type="button" onclick="Meer.stravaZet()">Toevoegen aan mijn trainingen</button>
-        <p class="mut">Alleen hartslag, calorieën en duur worden aangevuld. Je sets en gewichten blijven zoals ze zijn.</p>`
-      :`<div class="warnbox">Geen enkele activiteit viel op dezelfde dag als een training in je logboek. Klopt het jaartal in je bestand?</div>`}`;
-  },
-
-  stravaZet(){
-    const k=Meer._strava; if(!k) return;
-    let n=0;
-    for(const {sess,act} of k.raak){
-      let iets=false;
-      if(act.hrGem||act.hrMax){ sess.hr={gem:act.hrGem||null,max:act.hrMax||null}; iets=true; }
-      if(act.kcal){ sess.kcal=act.kcal; iets=true; }
-      if(act.effort!=null){ sess.effort=act.effort; iets=true; }
-      if(act.dur && !(sess.start&&sess.end)){
-        sess.end=dParse(sess.date).getTime(); sess.start=sess.end-act.dur*1000; iets=true;
-      }
-      if(iets) n++;
-    }
-    DB.save(); Sheet.close(); go("log");
-    toast(`${n} trainingen aangevuld`);
-  },
-
-  horloge(){
-    Sheet.open("Apple Watch koppelen",`
-      <button class="btn wide" type="button" onclick="Meer.strava()">Ik gebruik Strava — lees dat in</button>
-      <div class="hr"></div>`+`
-      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
-        Apple laat geen enkele website bij je gezondheidsgegevens, dus je horloge kan niet
-        rechtstreeks met deze app praten. De Opdrachten-app op je iPhone mág daar wél bij.
-        Die haalt de cijfers op en zet ze op je klembord; jij plakt ze hier in.</p>
-
-      <div class="sec-label">Tijdens je training</div>
-      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
-        Start op je horloge een workout <b>Krachttraining</b>. Zonder die workout meet je
-        Apple Watch je hartslag maar af en toe, en dan klopt het gemiddelde niet.</p>
-
-      <div class="sec-label">De opdracht eenmalig maken</div>
-      <ol style="font-size:14.5px;line-height:1.65;color:var(--ink-2);padding-left:20px;list-style:decimal">
-        <li>Open de app <b>Opdrachten</b> en tik op <b>+</b>.</li>
-        <li>Voeg toe: <b>Zoek gezondheidsmonsters</b>. Zet Type op <b>Hartslag</b>,
-            sorteer op <b>Startdatum</b>, en beperk tot <b>vandaag</b>.</li>
-        <li>Voeg toe: <b>Bereken statistiek</b> → <b>Gemiddelde</b> over die monsters.
-            Bewaar die in een variabele.</li>
-        <li>Herhaal stap 2 en 3, maar kies nu <b>Maximum</b>.</li>
-        <li>Voeg toe: <b>Zoek gezondheidsmonsters</b> met Type <b>Actieve energie</b>,
-            en daarna <b>Bereken statistiek</b> → <b>Som</b>.</li>
-        <li>Voeg als laatste <b>Kopieer naar klembord</b> toe met deze tekst erin,
-            waarbij je de drie variabelen invoegt:</li>
-      </ol>
-      <div class="notebox" style="font-family:var(--mono);font-size:12px;line-height:1.6">
-        Gemiddeld: [gemiddelde]<br>Max: [maximum]<br>[energie] kcal
-      </div>
-      <p class="mut">Geef de opdracht een naam als <b>Training klaar</b>. Je kunt hem op je
-        beginscherm zetten, of tegen Siri zeggen.</p>
-
-      <div class="sec-label">Na je training</div>
-      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
-        Tik de opdracht aan, ga in Rep King naar <b>Klaar</b> en plak in het vakje onder
-        &bdquo;Van je Apple Watch&rdquo;. De velden vullen zichzelf. Het maakt niet uit in welke
-        volgorde of met welke woorden de cijfers erin staan — ik zoek ze er zelf uit.</p>
-
-      <div class="hr"></div>
-      <p class="mut">Liever met de hand? Ook prima: dezelfde drie velden staan er gewoon,
-        je kunt ze rechtstreeks invullen vanaf je horloge.</p>`);
-  },
 
   about(){
     Sheet.open("Over Rep King",`
