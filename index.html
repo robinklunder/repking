@@ -396,6 +396,30 @@ canvas{display:block;width:100%;height:100%}
 .setrow.weg{background:var(--bad-soft)}
 .veeghint{padding:2px 13px 9px;font-size:11.5px;color:var(--ink-3)}
 
+/* Hoeveel herhalingen zaten er nog in? Verschijnt onder de set die je net
+   afvinkte. Overslaan mag altijd. */
+.rirrij{display:flex;align-items:center;gap:5px;padding:5px 13px 8px;flex-wrap:wrap}
+.rirrij>span{font-size:11.5px;color:var(--ink-3);margin-right:2px}
+.rirrij button{
+  min-width:30px;height:28px;padding:0 7px;border-radius:8px;
+  background:var(--surface-3);color:var(--ink-2);font-size:13px;font-weight:700;
+}
+.rirrij button.on{background:var(--accent);color:#fff}
+.rirrij button.over{font-size:11.5px;font-weight:600;color:var(--ink-3);background:transparent}
+.rirklaar{
+  display:block;padding:1px 13px 7px;font-size:11px;color:var(--ink-3);text-align:left;
+}
+
+/* Het gewichtsvoorstel boven de sets van een oefening */
+.voorstel{
+  display:flex;align-items:baseline;gap:9px;width:100%;text-align:left;
+  padding:8px 13px;margin:0;border-top:1px solid var(--line);
+  border-bottom:1px solid var(--line);background:var(--surface-2);
+}
+.voorstel .kop{font-size:14.5px;font-weight:750;color:var(--ink-2);font-family:var(--mono)}
+.voorstel.omhoog .kop{color:var(--good)}
+.voorstel .sub{font-size:11.5px;color:var(--ink-3);flex:1;text-align:right}
+
 @keyframes prpop{0%{transform:scale(.7);opacity:0}45%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
 .pr-pop{animation:prpop .45s cubic-bezier(.2,.9,.3,1)}
 @media (prefers-reduced-motion:reduce){
@@ -543,7 +567,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 16:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 20:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -803,6 +827,132 @@ function recordsUit(nuSets, eerder, maxSetsEerder){
 
   return uit;
 }
+/* ============================================================================
+   PROGRESSIE — wat leg je de volgende keer op de stang?
+
+   Drie dingen samen maken dit mogelijk:
+
+     doel  — hoeveel sets en welk herhalingsbereik je nastreeft (3 × 6–8)
+     stap  — de kleinste sprong die bij deze oefening haalbaar is
+     RIR   — hoeveel herhalingen je nog in de tank had
+
+   RIR is optioneel. Vul je het niet in, dan kijkt het voorstel alleen of je je
+   doelbereik haalde. Dat werkt ook, maar minder scherp: drie sets van acht met
+   nog drie in de tank is iets heel anders dan drie sets van acht waarbij de
+   laatste er met moeite uit kwam.
+
+   Alles wordt hier berekend uit wat je zelf hebt gelogd. Er wordt niets
+   ingevuld of overschreven — het voorstel is een regel tekst, jij typt. */
+
+/* Het doel van een oefening. Staat er nog niets, dan leiden we het af uit wat
+   je met deze oefening gewoonlijk doet: je gebruikelijke aantal sets en het
+   herhalingsaantal dat je het vaakst draait. Dat is een beter startpunt dan
+   één standaardwaarde voor alles — bij jou is dat voor bankdrukken iets heel
+   anders dan voor bicep curls. */
+function doelVan(ex){
+  if(ex && ex.doel && ex.doel.min) return ex.doel;
+  const h=ex?historyFor(ex.id):[];
+  const werk=[]; let setsPerSessie=[];
+  for(const d of h.slice(-8)){
+    const w=d.sets.filter(s=>!s.sec);
+    if(!w.length) continue;
+    setsPerSessie.push(w.length);
+    for(const s of w) if(s.r) werk.push(s.r);
+  }
+  if(werk.length<3) return {sets:3, min:8, max:12, stap:stapVan(ex), afgeleid:true};
+  // De mediaan, niet het meest voorkomende getal: bij bankdrukken staan er
+  // tientallen losse zware pogingen van één herhaling in zijn logboek, en dan
+  // zou "1 herhaling" als doel uit de bus komen.
+  werk.sort((a,b)=>a-b);
+  const mediaan=werk[Math.floor(werk.length/2)];
+  const sets=Math.round(setsPerSessie.reduce((a,b)=>a+b,0)/setsPerSessie.length)||3;
+  // een bereik van vier herhalingen rond wat je doorgaans draait
+  const min=Math.max(1,mediaan-1);
+  return {sets:clamp(sets,2,5), min, max:min+3, stap:stapVan(ex), afgeleid:true};
+}
+/* De kleinste sprong die je bij deze oefening in de praktijk maakt. Afgeleid
+   uit je eigen gewichten: bij een machine met blokken van 5 kg heeft 2,5 kg
+   voorstellen geen zin. */
+function stapVan(ex){
+  if(ex && ex.doel && ex.doel.stap) return ex.doel.stap;
+  const h=ex?historyFor(ex.id):[];
+  const gewichten=new Set();
+  for(const d of h) for(const s of d.sets) if(s.w>0 && !s.sec) gewichten.add(s.w);
+  const lijst=[...gewichten].sort((a,b)=>a-b);
+  if(lijst.length<3) return 2.5;
+  // De stap die het váákst tussen twee van zijn gewichten zit, niet de
+  // kleinste: één keer 1,5 kg verschil maakt nog geen apparaat met stappen
+  // van anderhalve kilo.
+  const tel={};
+  for(let i=1;i<lijst.length;i++){
+    const d=Math.round((lijst[i]-lijst[i-1])*4)/4;
+    if(d>=0.5 && d<=10) tel[d]=(tel[d]||0)+1;
+  }
+  const beste=Object.entries(tel).sort((a,b)=>b[1]-a[1]||a[0]-b[0])[0];
+  // Pas als diezelfde sprong minstens drie keer voorkomt geloven we hem. Bij
+  // lat pulldown kwam er anders 7,5 kg uit omdat hij er toevallig drie ver uit
+  // elkaar liggende gewichten op had staan — dan zou het voorstel van 17,5
+  // naar 25 kg springen.
+  return (beste && beste[1]>=3) ? clamp(+beste[0],0.5,10) : 2.5;
+}
+
+/* Het voorstel zelf. Geeft null terug als er te weinig te vergelijken valt —
+   liever niets zeggen dan iets verzinnen. */
+function voorstelVoor(exId, exclSessionId){
+  const ex=exById(exId); if(!ex || ex.type==="cardio") return null;
+  const h=historyFor(exId,exclSessionId);
+  if(!h.length) return null;
+  const vorige=h[h.length-1].sets.filter(s=>!s.sec);
+  if(!vorige.length) return null;
+
+  const doel=doelVan(ex), stap=doel.stap||stapVan(ex);
+  // het gewicht waar je vorige keer je werk deed: dat wat het vaakst voorkwam,
+  // bij gelijkspel het zwaarste
+  const tel={};
+  for(const s of vorige) if(s.w>0) tel[s.w]=(tel[s.w]||0)+1;
+  const kandidaten=Object.entries(tel).sort((a,b)=>b[1]-a[1]||b[0]-a[0]);
+  if(!kandidaten.length) return null;                       // puur lichaamsgewicht
+  const kg=+kandidaten[0][0];
+  const opKg=vorige.filter(s=>s.w===kg);
+  const reps=opKg.map(s=>s.r||0);
+  const laagste=Math.min(...reps), hoogste=Math.max(...reps);
+
+  // RIR van die sets, als je het hebt ingevuld
+  const rirs=opKg.map(s=>s.rir).filter(v=>v!==null&&v!==undefined);
+  const rir = rirs.length ? rirs.reduce((a,b)=>a+b,0)/rirs.length : null;
+  const rirTekst = rir===null ? "" : ` met gemiddeld ${nf(Math.round(rir*10)/10)} in de tank`;
+  const setsTekst = `${opKg.length}× ${laagste===hoogste?laagste:laagste+"–"+hoogste} × ${nf(kg)} kg`;
+
+  // Optellen vanaf het gewicht dat je gebruikte, niet afronden naar een raster:
+  // 17,5 kg met stappen van 5 wordt 22,5 kg, niet 25. En nooit meer dan een
+  // tiende erbij in één keer — bij een licht gewicht is een stap van 7,5 kg
+  // een sprong van veertig procent, en dat gaat je niet lukken.
+  const rond=v=>Math.round(v*2)/2;
+  const sprong=Math.max(1,Math.min(stap, kg*0.10));
+  const maak=(nieuwKg,reden,soort)=>({kg:Math.round(nieuwKg*100)/100, reden, soort, doel, stap, vorige:{kg,laagste,hoogste,sets:opKg.length,rir}});
+
+  // 1. doelbereik niet gehaald: niet verhogen
+  if(laagste < doel.min){
+    if(rir!==null && rir>=2)
+      return maak(kg, `Je bleef onder je doel (${setsTekst}${rirTekst}). Er zat nog ruimte in — probeer hetzelfde gewicht nog eens en ga voor ${doel.min}+ herhalingen.`, "zelfde");
+    return maak(kg, `Je haalde ${setsTekst}, onder je doel van ${doel.min}. Blijf op dit gewicht tot je ${doel.min} herhalingen haalt in al je sets.`, "zelfde");
+  }
+
+  // 2. bovenkant van het bereik gehaald in alle sets
+  if(laagste >= doel.max){
+    if(rir!==null && rir>=3)
+      return maak(rond(kg+Math.min(stap*2,kg*0.15)), `Je draaide ${setsTekst}${rirTekst}. Dat was duidelijk te licht — twee stappen omhoog kan.`, "omhoog");
+    if(rir!==null && rir<=0)
+      return maak(rond(kg+sprong), `Je haalde ${setsTekst}, maar ging er helemaal doorheen${rirTekst}. Eén stap omhoog, en verwacht dat je onderin je bereik begint.`, "omhoog");
+    return maak(rond(kg+sprong), `Je haalde ${setsTekst} — je hele doelbereik vol. Tijd voor ${nf(rond(kg+sprong))} kg.`, "omhoog");
+  }
+
+  // 3. binnen het bereik: eerst herhalingen erbij
+  if(rir!==null && rir>=3)
+    return maak(rond(kg+sprong), `Je zat op ${setsTekst}${rirTekst}. Je bent nog niet aan de bovenkant van je bereik, maar het kostte je weinig — dit gewicht mag omhoog.`, "omhoog");
+  return maak(kg, `Je zat op ${setsTekst}${rirTekst}. Blijf op ${nf(kg)} kg en werk naar ${doel.max} herhalingen in elke set.`, "zelfde");
+}
+
 /* Je record bij een oefening, in gewone taal: de zwaarste set die je ooit
    deed. Bij oefeningen op eigen lichaamsgewicht bestaat "zwaarst" niet, dus
    daar is het aantal herhalingen de maat. Geen geschat 1RM — dat getal heeft
@@ -2089,6 +2239,7 @@ const Train={
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
+      ${this.voorstelBalk(e,i,a)}
       <div class="setgrid head${cardio?" cardio":""}"><span>Set</span><span>${kolA}</span><span>${kolB}</span>${cardio?`<span>${kolC}</span>`:""}<span></span></div>
       ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige,cardio)).join("")}
       ${i===0?`<div class="veeghint">Veeg een set opzij om hem te verwijderen.</div>`:""}
@@ -2118,8 +2269,88 @@ const Train={
       ${cardio?`<input class="inp num" inputmode="numeric" value="${s.kcal??""}" placeholder="–" onchange="Train.setVal(${i},${j},'kcal',this.value)" aria-label="Calorieën">`:""}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
+    </div>${this.rirRij(s,i,j)}`;
+  },
+
+  /* Het gewichtsvoorstel boven de sets. Bewust alleen tekst: hij vult zijn
+     sets zelf in, dat houdt hem scherp. Tik je op de balk, dan zie je waarom
+     dit voorstel er staat en kun je je doel aanpassen. Ben je al begonnen met
+     afvinken, dan verdwijnt hij — dan weet je het al. */
+  voorstelBalk(e,i,a){
+    if(e.sets.some(s=>s.done)) return "";
+    const v=voorstelVoor(e.exId,a.id);
+    if(!v) return "";
+    const d=v.doel;
+    return `<button class="voorstel ${v.soort}" type="button" onclick="Train.voorstelUitleg(${i})">
+      <span class="kop">${v.soort==="omhoog"?"↑":"→"} ${nf(v.kg)} kg</span>
+      <span class="sub">${d.sets}× ${d.min}–${d.max} · waarom?</span></button>`;
+  },
+  voorstelUitleg(i){
+    const e=DB.d.active.entries[i];
+    const v=voorstelVoor(e.exId,DB.d.active.id);
+    if(!v) return;
+    const d=v.doel;
+    Sheet.open(exName(e.exId),`
+      <div class="notebox" style="font-size:14.5px;line-height:1.6">${esc(v.reden)}</div>
+      <p class="mut">Een voorstel, geen opdracht. Voel je je goed, ga zwaarder; voelt het niet,
+        blijf staan. De app vult niets voor je in.</p>
+      <div class="sec-label">Je doel voor deze oefening</div>
+      <div class="row">
+        <div class="field" style="flex:1"><label>Sets</label>
+          <input class="ctrl num" id="dSets" inputmode="numeric" value="${d.sets}"></div>
+        <div class="field" style="flex:1"><label>Van</label>
+          <input class="ctrl num" id="dMin" inputmode="numeric" value="${d.min}"></div>
+        <div class="field" style="flex:1"><label>Tot</label>
+          <input class="ctrl num" id="dMax" inputmode="numeric" value="${d.max}"></div>
+        <div class="field" style="flex:1"><label>Stap (kg)</label>
+          <input class="ctrl num" id="dStap" inputmode="decimal" value="${nf(v.stap)}"></div>
+      </div>
+      <p class="mut">${d.afgeleid?"Deze waarden heb ik afgeleid uit wat je met deze oefening meestal doet. Pas ze gerust aan.":"Zelf ingesteld."}
+        De stap is de kleinste sprong die bij dit apparaat haalbaar is.</p>
+      <button class="btn primary wide" type="button" onclick="Train.doelOpslaan('${e.exId}')">Doel opslaan</button>`);
+  },
+  doelOpslaan(exId){
+    const ex=exById(exId); if(!ex) return;
+    const g=(id,t)=>{ const el=$(id); if(!el) return t;
+      const v=parseFloat(String(el.value).replace(",",".")); return isNaN(v)?t:v; };
+    const oud=doelVan(ex);
+    const min=clamp(Math.round(g("#dMin",oud.min)),1,50);
+    ex.doel={
+      sets: clamp(Math.round(g("#dSets",oud.sets)),1,10),
+      min,
+      max: clamp(Math.round(g("#dMax",oud.max)),min,60),
+      stap: clamp(g("#dStap",oud.stap),0.5,25)
+    };
+    DB.save(); Sheet.close(); render(); toast("Doel opgeslagen");
+  },
+
+  /* ---- RIR: hoeveel zat er nog in? --------------------------------------
+     Verschijnt onder de set die je zojuist hebt afgevinkt, en verdwijnt zodra
+     je kiest of de volgende set afvinkt. Overslaan mag: de set telt gewoon
+     mee, het voorstel wordt er alleen minder scherp van. */
+  _rirVoor:null,
+  rirRij(s,i,j){
+    const actief=this._rirVoor && this._rirVoor.i===i && this._rirVoor.j===j;
+    if(!s.done || s.sec) return "";
+    if(!actief){
+      return (s.rir===null||s.rir===undefined) ? ""
+        : `<button class="rirklaar" type="button" onclick="Train.rirOpnieuw(${i},${j})">
+             ${s.rir===0?"ging er helemaal doorheen":`${s.rir} nog in de tank`}</button>`;
+    }
+    return `<div class="rirrij">
+      <span>Nog in de tank?</span>
+      ${[0,1,2,3,4].map(n=>`<button type="button" class="${s.rir===n?"on":""}"
+          onclick="Train.zetRir(${i},${j},${n})">${n===4?"4+":n}</button>`).join("")}
+      <button type="button" class="over" onclick="Train.zetRir(${i},${j},null)">sla over</button>
     </div>`;
   },
+  zetRir(i,j,n){
+    const s=DB.d.active.entries[i].sets[j];
+    s.rir = (n===null || s.rir===n) ? null : n;
+    this._rirVoor=null;
+    DB.save(); render();
+  },
+  rirOpnieuw(i,j){ this._rirVoor={i,j}; render(); },
 
   /* Eigen lichaamsgewicht aan of uit voor deze set */
   togBw(i,j){
@@ -2145,10 +2376,14 @@ const Train={
                if(h&&h.sets[j]){ s.w=h.sets[j].w; s.r=h.sets[j].r; s.bw=!!h.sets[j].bw; } }
       }
       s.done=true; s.ts=Date.now();
+      // Vraag meteen hoeveel er nog in zat. Alleen bij deze ene set, en alleen
+      // als er een gewicht of herhaling in staat — bij een lege set heeft het
+      // geen betekenis.
+      this._rirVoor = (s.r && !s.sec) ? {i,j} : null;
       const p=this.checkPR(e.exId,s,a.id);
       render();
       if(p) toast(p);
-    } else { s.done=false; render(); }
+    } else { s.done=false; s.rir=null; this._rirVoor=null; render(); }
     DB.save();
   },
   checkPR(exId,s,sessId){
