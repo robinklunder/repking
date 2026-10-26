@@ -543,7 +543,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="11 okt 2026 - 17:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 14:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -800,6 +800,44 @@ function recordsUit(nuSets, eerder, maxSetsEerder){
 
   return uit;
 }
+/* Je record bij een oefening, in gewone taal: de zwaarste set die je ooit
+   deed. Bij oefeningen op eigen lichaamsgewicht bestaat "zwaarst" niet, dus
+   daar is het aantal herhalingen de maat. Geen geschat 1RM — dat getal heeft
+   hij nooit willen zien. */
+function recordTekst(exId, exclSessionId){
+  const h=historyFor(exId,exclSessionId);
+  const sets=[];
+  for(const d of h) for(const s of d.sets) if(!s.sec) sets.push(s);
+  if(!sets.length) return "";
+  const zwaarst=Math.max(0,...sets.map(s=>s.w||0));
+  if(!zwaarst){
+    const meeste=Math.max(0,...sets.map(s=>s.r||0));
+    return meeste ? `record ${meeste} herhalingen` : "";
+  }
+  // bij dat gewicht: de set met de meeste herhalingen
+  const reps=Math.max(0,...sets.filter(s=>(s.w||0)>=zwaarst).map(s=>s.r||0));
+  const bw=sets.some(s=>(s.w||0)===zwaarst && s.bw);
+  return `record ${setTekst(zwaarst,reps,true,bw)}`;
+}
+/* Wat je vorige keer deed, kort genoeg om tussen twee sets te lezen. De hele
+   rij uitschrijven werd acht setjes op één grijs regeltje — onleesbaar. */
+function vorigeTekst(vorige){
+  if(!vorige || !vorige.sets.length) return "eerste keer";
+  const sets=vorige.sets.filter(s=>!s.sec);
+  const n=vorige.sets.length;
+  let top=null;
+  for(const s of sets)
+    if(!top || (s.w||0)>(top.w||0) || ((s.w||0)===(top.w||0) && (s.r||0)>(top.r||0))) top=s;
+  const kop=`vorige: ${n} ${n===1?"set":"sets"}`;
+  if(!top) return kop;
+  // zonder gewicht is het aantal herhalingen de maat (dips, pull-ups, plank)
+  if(!top.w){
+    const meeste=Math.max(0,...sets.map(s=>s.r||0));
+    return meeste ? `${kop}, meeste ${meeste} herhalingen` : kop;
+  }
+  return `${kop}, zwaarst ${setTekst(top.w,top.r,true,top.bw)}`;
+}
+
 /* Dezelfde test, maar met de geschiedenis er zelf bij gezocht */
 function recordsVoor(exId, sets, exclSessionId){
   const h=historyFor(exId,exclSessionId);
@@ -983,7 +1021,7 @@ function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrol
 
 /* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
    alsof je nergens meer bent. */
-const TAB_VAN={sessie:"log", oefening:"prog"};
+const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog"};
 function renderTabs(){
   const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
@@ -1073,6 +1111,7 @@ function render(){
   else if(page==="meer")  Meer.render(V);
   else if(page==="sessie")Log.detail(V,pageArg);
   else if(page==="oefening")Prog.detail(V,pageArg);
+  else if(page==="jaar")  Prog.jaar(V);
   // Kan de app niets bewaren? Dan hoort dat op élk scherm te staan, niet alleen op het eerste.
   if(!storageOK){
     const w=document.createElement("div");
@@ -2042,8 +2081,8 @@ const Train={
       <div class="ex-head">
         <div class="ex-name"><b>${esc(ex.name)}</b>
           <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>
-          ${vorige?`<span class="prev-hint">vorige: ${vorige.sets.map(s=>setTekst(s.w,s.r,false,s.bw)).join("  ")}</span>`:`<span class="prev-hint">eerste keer</span>`}
-          ${pr.e1?`<span class="prev-hint">· record ${nf(Math.round(pr.e1))}kg e1RM</span>`:""}</div>
+          <span class="prev-hint">${esc(vorigeTekst(vorige))}</span>
+          ${(()=>{ const r=recordTekst(e.exId,a.id); return r?`<span class="prev-hint">· ${esc(r)}</span>`:""; })()}</div>
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
@@ -2797,6 +2836,7 @@ const Prog={
         <div class="tile"><div class="k">Volume</div><div class="v">${kf(vol30)}</div><div class="u">kg</div></div>
         <div class="tile"><div class="k">Werksets</div><div class="v">${sets30}</div><div class="u">30 dagen</div></div>
       </div>
+      ${ss.length>=20?`<button class="btn wide" type="button" onclick="go('jaar')">Jaaroverzicht bekijken</button>`:""}
 
       <div class="card">
         <div class="card-head"><div class="card-title">Werksets per week</div></div>
@@ -2887,6 +2927,146 @@ const Prog={
      per blok de béste — niet de eerste tegen de laatste. Eén lichte dag na een
      zware single zei anders meteen "zakt", terwijl er niets aan de hand was.
      Pas bij 4% verschil noemen we het iets; daartussen is het gewoon vlak. */
+  /* ---- Jaaroverzicht -----------------------------------------------------
+     Niet om tussen de sets te raadplegen, maar om af en toe terug te lezen.
+     Daarom hele zinnen en weinig tegels: "bankdrukken van 40 naar 100 kg"
+     zegt meer dan een grafiek met een stijgende lijn.                      */
+  jaarPeriode:"12",                       // "12" = laatste twaalf maanden, "alles"
+  jaar(V){
+    const alles=allSessions().slice().sort((a,b)=>a.date<b.date?-1:1);
+    if(!alles.length){ go("prog"); return; }
+    const grens = this.jaarPeriode==="12" ? addDays(today(),-365) : alles[0].date;
+    const ss=alles.filter(s=>s.date>=grens);
+    head("Jaaroverzicht", ss.length?`${dShort(ss[0].date)} tot ${dShort(ss[ss.length-1].date)}`:"",
+      `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
+    if(!ss.length){
+      V.innerHTML=`<div class="card"><div class="empty"><p>In deze periode staat niets gelogd.</p></div></div>`;
+      return;
+    }
+
+    // cijfers
+    let sets=0, vol=0, reps=0, minuten=0;
+    for(const s of ss){ const st=sessionStats(s); sets+=st.sets; vol+=st.vol; reps+=st.reps; minuten+=Math.round(st.dur/60); }
+    const prs=Inspanning.prPerSessie();
+    const records=ss.reduce((a,s)=>a+(prs[s.id]||0),0);
+
+    // per maand: hoeveel trainingen
+    const maanden=new Map();
+    for(let d=new Date(dParse(ss[0].date).getFullYear(),dParse(ss[0].date).getMonth(),1);
+        d<=dParse(ss[ss.length-1].date); d.setMonth(d.getMonth()+1)){
+      maanden.set(d.toISOString().slice(0,7),0);
+    }
+    for(const s of ss){ const k=s.date.slice(0,7); if(maanden.has(k)) maanden.set(k,maanden.get(k)+1); }
+    const maandLijst=[...maanden];
+    const maxMaand=Math.max(1,...maandLijst.map(m=>m[1]));
+    const besteMaand=maandLijst.slice().sort((a,b)=>b[1]-a[1])[0];
+    const stille=maandLijst.filter(m=>m[1]===0).length;
+
+    // grootste sprongen: eerste tegen beste set per oefening
+    const sprongen=[];
+    for(const ex of DB.d.exercises){
+      // minstens zes sessies, anders roept één toevallige zware dag al "+78%"
+      const h=historyFor(ex.id).filter(d=>d.date>=grens);
+      if(h.length<6) continue;
+      let eerst=0, best=0, bestSet=null;
+      for(const s of h[0].sets) if((s.w||0)>eerst) eerst=s.w||0;
+      for(const d of h) for(const s of d.sets)
+        if((s.w||0)>best){ best=s.w||0; bestSet=s; }
+      if(!eerst || best<=eerst) continue;
+      sprongen.push({naam:ex.name, van:eerst, naar:best, set:bestSet,
+                     pct:(best-eerst)/eerst, sessies:h.length});
+    }
+    sprongen.sort((a,b)=>b.pct-a.pct);
+
+    // spiergroepen over de hele periode
+    const groep={};
+    for(const s of ss) for(const e of s.entries){
+      const ex=exById(e.exId); if(!ex) continue;
+      const n=e.sets.filter(isWork).length; if(!n) continue;
+      for(const g of exGroepen(ex)) groep[g]=(groep[g]||0)+n;
+    }
+    const groepLijst=GROEPEN.filter(g=>groep[g]).sort((a,b)=>groep[b]-groep[a]);
+    const maxGroep=Math.max(1,...groepLijst.map(g=>groep[g]));
+
+    // lichaamsgewicht
+    const gew=DB.d.weights.filter(w=>w.date>=grens).sort((a,b)=>a.date<b.date?-1:1);
+
+    const uren=Math.round(minuten/60);
+    V.innerHTML=`
+      <div class="seg">
+        <button type="button" class="${this.jaarPeriode==="12"?"on":""}" onclick="Prog.jaarKies('12')">Laatste 12 maanden</button>
+        <button type="button" class="${this.jaarPeriode==="alles"?"on":""}" onclick="Prog.jaarKies('alles')">Alles</button>
+      </div>
+
+      <div class="card card-pad">
+        <p style="font-size:15px;line-height:1.6;color:var(--ink-2)">
+          Je deed <b class="num" style="color:var(--ink)">${ss.length}</b> workouts,
+          <b class="num" style="color:var(--ink)">${kf(sets)}</b> werksets en
+          <b class="num" style="color:var(--ink)">${nf(Math.round(reps))}</b> herhalingen.
+          Samen tilde je <b class="num" style="color:var(--ink)">${kf(vol)}</b> kg${uren?`, in ongeveer <b class="num" style="color:var(--ink)">${uren}</b> uur in de gym`:""}.
+          Daar vielen <b class="num" style="color:var(--ink)">${records}</b> persoonlijke records in.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Per maand</div>
+          <span class="chip">${besteMaand?`beste: ${MND[+besteMaand[0].slice(5)-1]}`:""}</span></div>
+        <div style="padding:12px 14px;display:flex;align-items:flex-end;gap:4px;height:92px">
+          ${maandLijst.map(([k,n])=>{
+            const hgt=Math.max(n?4:2,Math.round(n/maxMaand*64));
+            return `<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:4px;justify-content:flex-end">
+              <span class="num" style="font-size:10.5px;color:var(--ink-3)">${n||""}</span>
+              <i style="display:block;width:100%;height:${hgt}px;border-radius:3px;background:${n?"var(--accent)":"var(--surface-3)"}"></i>
+              <span style="font-size:9.5px;color:var(--ink-3);white-space:nowrap">${MND[+k.slice(5)-1]}</span>
+            </div>`;
+          }).join("")}
+        </div>
+        <div style="padding:0 14px 13px"><p class="mut" style="font-size:12.5px">
+          ${stille?`${stille} ${stille===1?"maand":"maanden"} zonder gelogde workout.`:"Geen enkele maand overgeslagen."}</p></div>
+      </div>
+
+      ${sprongen.length?`
+      <div class="card">
+        <div class="card-head"><div class="card-title">Waar je het hardst groeide</div></div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:11px">
+          ${sprongen.slice(0,5).map(s=>`
+            <div>
+              <div style="display:flex;gap:8px;align-items:baseline">
+                <b style="font-size:14.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.naam)}</b>
+                <span class="num" style="font-size:13px;color:var(--good)">+${Math.round(s.pct*100)}%</span>
+              </div>
+              <span class="num" style="font-size:12.5px;color:var(--ink-3)">${nf(s.van)} kg → ${nf(s.naar)} kg · ${s.sessies} sessies</span>
+            </div>`).join("")}
+        </div>
+      </div>`:""}
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Waar je sets heen gingen</div></div>
+        <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px">
+          ${groepLijst.map(g=>`
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="width:88px;flex:none;font-size:12.5px;color:var(--ink-2)">${g}</span>
+              <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+                <i style="display:block;height:100%;width:${groep[g]/maxGroep*100}%;background:var(--accent);border-radius:99px"></i></div>
+              <span class="num" style="width:34px;text-align:right;font-size:12px;color:var(--ink-3)">${groep[g]}</span>
+            </div>`).join("")}
+        </div>
+      </div>
+
+      ${gew.length>1?`
+      <div class="card card-pad">
+        <p style="font-size:14.5px;line-height:1.6;color:var(--ink-2)">Je woog aan het begin
+          <b class="num" style="color:var(--ink)">${nf(gew[0].kg)}</b> kg en nu
+          <b class="num" style="color:var(--ink)">${nf(gew[gew.length-1].kg)}</b> kg
+          — ${(()=>{ const d=gew[gew.length-1].kg-gew[0].kg;
+            return Math.abs(d)<0.6 ? "vrijwel gelijk gebleven"
+                 : `${nf(Math.abs(d))} kg ${d>0?"erbij":"eraf"}`; })()}.</p>
+      </div>`:""}
+
+      <p class="mut" style="padding:0 4px 10px">Alleen wat je zelf hebt gelogd telt mee.
+        Workouts die je vergeten bent in te voeren staan hier dus niet in.</p>`;
+  },
+  jaarKies(p){ this.jaarPeriode=p; render(); },
+
   trend(h){
     if(h.length<6) return null;
     const e=h.map(d=>bestOf(d.sets).e1).filter(v=>v>0);
