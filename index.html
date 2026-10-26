@@ -419,6 +419,9 @@ canvas{display:block;width:100%;height:100%}
 .voorstel .kop{font-size:14.5px;font-weight:750;color:var(--ink-2);font-family:var(--mono)}
 .voorstel.omhoog .kop{color:var(--good)}
 .voorstel .sub{font-size:11.5px;color:var(--ink-3);flex:1;text-align:right}
+.voorstel.maxtijd{background:var(--accent-soft)}
+.voorstel.maxtijd .kop{color:var(--accent);font-family:var(--sans);font-size:13.5px}
+.voorstel+.voorstel{border-top:0}
 
 @keyframes prpop{0%{transform:scale(.7);opacity:0}45%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
 .pr-pop{animation:prpop .45s cubic-bezier(.2,.9,.3,1)}
@@ -567,7 +570,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 20:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 21:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -894,6 +897,50 @@ function stapVan(ex){
   // elkaar liggende gewichten op had staan — dan zou het voorstel van 17,5
   // naar 25 kg springen.
   return (beste && beste[1]>=3) ? clamp(+beste[0],0.5,10) : 2.5;
+}
+
+/* Is het weer tijd om je max te testen?
+
+   Een zware poging meet je kracht, hij bouwt hem niet — en hij kost herstel.
+   Daarom pas als aan drie dingen is voldaan: het is minstens acht weken
+   geleden, je hebt de oefening sindsdien geregeld gedaan, én je werkgewicht is
+   omhoog gegaan. Dat laatste is de belangrijkste: testen terwijl er niets is
+   veranderd levert alleen hetzelfde getal op.
+
+   Een "poging" is een set van één of twee herhalingen op minstens 90% van je
+   zwaarste ooit. Lichtere lage-repsets tellen niet mee.                     */
+function maxMoment(exId, exclSessionId){
+  const ex=exById(exId);
+  if(!ex || ex.type==="cardio") return null;
+  const h=historyFor(exId,exclSessionId);
+  if(h.length<6) return null;
+  const alle=[];
+  for(const d of h) for(const s of d.sets) if(!s.sec && s.w>0) alle.push({date:d.date,w:s.w,r:s.r||0});
+  if(!alle.length) return null;
+  // Alleen bij oefeningen die je écht zwaar traint. Zonder deze voorwaarde
+  // stelde hij voor om te maxen op fietsen, front raises en bicep curls —
+  // daar test je geen maximum op.
+  if(alle.filter(s=>s.r>=1 && s.r<=5).length<3) return null;
+  const best=Math.max(...alle.map(s=>s.w));
+  const pogingen=alle.filter(s=>s.r<=2 && s.w>=best*0.9);
+  const laatste=pogingen.length ? pogingen[pogingen.length-1].date : null;
+  const weken = laatste ? Math.floor(daysAgo(laatste)/7) : 99;
+  if(weken<8) return null;
+
+  const sinds=h.filter(d=>!laatste || d.date>laatste);
+  if(sinds.length<4) return null;                       // te weinig getraind sinds toen
+
+  // werksets: drie herhalingen of meer, dat is het werk waar kracht uit komt
+  const werkNa=Math.max(0,...alle.filter(s=>s.r>=3 && (!laatste||s.date>laatste)).map(s=>s.w));
+  const werkVoor=Math.max(0,...alle.filter(s=>s.r>=3 && laatste && s.date<=laatste).map(s=>s.w));
+  if(laatste && werkNa<=werkVoor) return null;          // niets veranderd, niets te testen
+
+  return {
+    weken, laatste, best,
+    tekst: laatste
+      ? `Je laatste zware poging was ${weken} weken geleden, en je werkgewicht ging sindsdien van ${nf(werkVoor)} naar ${nf(werkNa)} kg. Goed moment om te kijken waar je max nu staat.`
+      : `Je hebt bij deze oefening nog nooit een zware poging gelogd, en je draait er inmiddels ${sinds.length} sessies op. Je zou kunnen kijken waar je max ligt.`
+  };
 }
 
 /* Het voorstel zelf. Geeft null terug als er te weinig te vergelijken valt —
@@ -2279,11 +2326,15 @@ const Train={
   voorstelBalk(e,i,a){
     if(e.sets.some(s=>s.done)) return "";
     const v=voorstelVoor(e.exId,a.id);
-    if(!v) return "";
-    const d=v.doel;
-    return `<button class="voorstel ${v.soort}" type="button" onclick="Train.voorstelUitleg(${i})">
-      <span class="kop">${v.soort==="omhoog"?"↑":"→"} ${nf(v.kg)} kg</span>
-      <span class="sub">${d.sets}× ${d.min}–${d.max} · waarom?</span></button>`;
+    const mx=maxMoment(e.exId,a.id);
+    if(!v && !mx) return "";
+    const d=v?v.doel:null;
+    return `${v?`<button class="voorstel ${v.soort}" type="button" onclick="Train.voorstelUitleg(${i})">
+        <span class="kop">${v.soort==="omhoog"?"↑":"→"} ${nf(v.kg)} kg</span>
+        <span class="sub">${d.sets}× ${d.min}–${d.max} · waarom?</span></button>`:""}
+      ${mx?`<button class="voorstel maxtijd" type="button" onclick="Train.maxUitleg(${i})">
+        <span class="kop">Tijd om te maxen?</span>
+        <span class="sub">${mx.weken} weken geleden · waarom?</span></button>`:""}`;
   },
   voorstelUitleg(i){
     const e=DB.d.active.entries[i];
@@ -2308,6 +2359,21 @@ const Train={
       <p class="mut">${d.afgeleid?"Deze waarden heb ik afgeleid uit wat je met deze oefening meestal doet. Pas ze gerust aan.":"Zelf ingesteld."}
         De stap is de kleinste sprong die bij dit apparaat haalbaar is.</p>
       <button class="btn primary wide" type="button" onclick="Train.doelOpslaan('${e.exId}')">Doel opslaan</button>`);
+  },
+  maxUitleg(i){
+    const e=DB.d.active.entries[i];
+    const mx=maxMoment(e.exId,DB.d.active.id);
+    if(!mx) return;
+    Sheet.open(exName(e.exId),`
+      <div class="notebox" style="font-size:14.5px;line-height:1.6">${esc(mx.tekst)}</div>
+      <div class="sec-label">Hoe je het aanpakt</div>
+      <p class="mut" style="font-size:14.5px;line-height:1.6;color:var(--ink-2)">
+        Bouw rustig op met enkele herhalingen: ${nf(Math.round(mx.best*0.5))} · ${nf(Math.round(mx.best*0.7))} ·
+        ${nf(Math.round(mx.best*0.85))} · ${nf(Math.round(mx.best*0.93))} kg, met genoeg rust ertussen.
+        Daarna één poging op ${nf(Math.round(mx.best*1.02))} kg of iets meer.
+        Lukt die soepel, dan mag er nog één bij — maar hooguit twee pogingen.</p>
+      <p class="mut">Doe dit niet vaker dan eens in de acht tot twaalf weken, en zorg dat er iemand
+        bij staat of dat je beugels goed staan. Een gemiste poging kost je meer dan het getal je oplevert.</p>`);
   },
   doelOpslaan(exId){
     const ex=exById(exId); if(!ex) return;
@@ -4155,6 +4221,16 @@ const Tips={
         `Ook <b>${stil.slice(2).map(s=>exName(s.id)).join(", ")}</b> gaan al weken niet meer vooruit.`,
         `Als bijna alles tegelijk stilstaat, ligt het zelden aan je schema. Kijk eerst naar slaap, eten en of je een rustweek overslaat.`,3);
 
+    /* --- 1b. Tijd om je max te testen? --- */
+    for(const id of belangrijk.slice(0,4)){
+      const mx=maxMoment(id);
+      if(!mx) continue;
+      add("good","Testen",`${exName(id)}: tijd om te maxen`,
+        mx.tekst,
+        `Bouw op met enkele herhalingen tot ongeveer 93% en doe dan één poging. Hooguit twee pogingen, en niet vaker dan eens in de acht tot twaalf weken.`,2);
+      break;                                   // één tegelijk is genoeg
+    }
+
     /* --- 2. Duwen / trekken balans --- */
     const cat=setsPerCat(28);
     const push=cat.push||0, pull=cat.pull||0;
@@ -4479,6 +4555,20 @@ const Meer={
         ${this.kiezer("eGroep",GROEPEN.map(g=>[g,g]),exGroepen(e))}</div>
       <div class="field"><label>Soort beweging</label>
         ${this.kiezer("eCat",CATS,exCats(e))}</div>
+      ${(()=>{ const d=doelVan(e); return `
+      <div class="sec-label">Je doel per training</div>
+      <div class="row">
+        <div class="field" style="flex:1"><label>Sets</label>
+          <input class="ctrl num" id="eSets" inputmode="numeric" value="${d.sets}"></div>
+        <div class="field" style="flex:1"><label>Van</label>
+          <input class="ctrl num" id="eMin" inputmode="numeric" value="${d.min}"></div>
+        <div class="field" style="flex:1"><label>Tot</label>
+          <input class="ctrl num" id="eMax" inputmode="numeric" value="${d.max}"></div>
+        <div class="field" style="flex:1"><label>Stap (kg)</label>
+          <input class="ctrl num" id="eStap" inputmode="decimal" value="${nf(d.stap)}"></div>
+      </div>
+      <p class="mut">${d.afgeleid?"Afgeleid uit wat je met deze oefening meestal doet — pas gerust aan.":"Zelf ingesteld."}
+        Hier komt het gewichtsvoorstel uit dat je tijdens een workout boven je sets ziet.</p>`; })()}
       <div class="switch"><div class="sw-main"><b>Niet voorstellen</b>
         <span>De app laat deze oefening weg uit het trainingsvoorstel. Je kunt hem zelf altijd nog kiezen.</span></div>
         <button class="toggle ${e.nietVoorstellen?"on":""}" type="button" onclick="Meer.togVoorstel('${id}',this)"><i></i></button></div>
@@ -4492,6 +4582,17 @@ const Meer={
     e.name=$("#eName").value.trim()||e.name;
     e.groepen=this.gekozen("eGroep",exGroepen(e)); e.groep=e.groepen[0];
     e.cats   =this.gekozen("eCat",  exCats(e));    e.cat  =e.cats[0];
+    // doel per training
+    const g=(id,t)=>{ const el=$(id); if(!el) return t;
+      const v=parseFloat(String(el.value).replace(",",".")); return isNaN(v)?t:v; };
+    const oud=doelVan(e);
+    const min=clamp(Math.round(g("#eMin",oud.min)),1,50);
+    e.doel={
+      sets: clamp(Math.round(g("#eSets",oud.sets)),1,10),
+      min,
+      max:  clamp(Math.round(g("#eMax",oud.max)),min,60),
+      stap: clamp(g("#eStap",oud.stap),0.5,25)
+    };
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
 
