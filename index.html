@@ -570,7 +570,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="26 okt 2026 - 21:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="26 okt 2026 - 23:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -602,6 +602,7 @@ const DB={
       routines:[],
       sessions:[],
       weights:[],
+      evaluaties:[],      // bewaarde momentopnames, om de volgende mee te vergelijken
       profiel:null,        // Coach: leeftijd, doelen, dagen, blessures, eten
       checkins:[],         // Coach: één korte vragenlijst per week
       active:null
@@ -1221,7 +1222,7 @@ function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrol
 
 /* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
    alsof je nergens meer bent. */
-const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog"};
+const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog", evaluatie:"prog"};
 function renderTabs(){
   const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
@@ -1312,6 +1313,7 @@ function render(){
   else if(page==="sessie")Log.detail(V,pageArg);
   else if(page==="oefening")Prog.detail(V,pageArg);
   else if(page==="jaar")  Prog.jaar(V);
+  else if(page==="evaluatie")Prog.evaluatie(V);
   // Kan de app niets bewaren? Dan hoort dat op élk scherm te staan, niet alleen op het eerste.
   if(!storageOK){
     const w=document.createElement("div");
@@ -3170,7 +3172,10 @@ const Prog={
         <div class="tile"><div class="k">Volume</div><div class="v">${kf(vol30)}</div><div class="u">kg</div></div>
         <div class="tile"><div class="k">Werksets</div><div class="v">${sets30}</div><div class="u">30 dagen</div></div>
       </div>
-      ${ss.length>=20?`<button class="btn wide" type="button" onclick="go('jaar')">Jaaroverzicht bekijken</button>`:""}
+      ${ss.length>=8?`<div class="row">
+        <button class="btn wide" type="button" onclick="go('evaluatie')">Evaluatie</button>
+        ${ss.length>=20?`<button class="btn wide" type="button" onclick="go('jaar')">Jaaroverzicht</button>`:""}
+      </div>`:""}
 
       <div class="card">
         <div class="card-head"><div class="card-title">Werksets per week</div></div>
@@ -3261,6 +3266,124 @@ const Prog={
      per blok de béste — niet de eerste tegen de laatste. Eén lichte dag na een
      zware single zei anders meteen "zakt", terwijl er niets aan de hand was.
      Pas bij 4% verschil noemen we het iets; daartussen is het gewoon vlak. */
+  /* ---- Evaluatie ---------------------------------------------------------
+     Acht weken tegen de acht daarvóór. Dat venster zit bewust tussen Tips (die
+     per oefening naar een kort stukje kijkt) en het jaaroverzicht (dat te ver
+     uitzoomt om een scheve verhouding te zien) in. Precies het blok waarin je
+     merkt dat er iets verandert.
+
+     Alles hieronder is rekenwerk met drempels — geen oordeel over hoe je je
+     voelt. Waar de cijfers te dun zijn, zegt hij dat.                       */
+  evalWeken:8,
+  blok(van,tot){
+    const uit={workouts:0, sets:0, groep:{}, push:0, pull:0, oef:{}, zwaar:0, singles:0, repsets:0};
+    for(const s of DB.d.sessions){
+      if(s.date<van || s.date>tot) continue;
+      uit.workouts++;
+      for(const e of s.entries){
+        const ex=exById(e.exId); if(!ex || ex.type==="cardio") continue;
+        const w=e.sets.filter(x=>isWork(x) && !x.sec);
+        if(!w.length) continue;
+        uit.sets+=w.length;
+        for(const g of exGroepen(ex)) uit.groep[g]=(uit.groep[g]||0)+w.length;
+        for(const c of exCats(ex)){ if(c==="push") uit.push+=w.length; if(c==="pull") uit.pull+=w.length; }
+        const o=uit.oef[e.exId]||(uit.oef[e.exId]={sets:0, sessies:0, zwaarst:0, besteWerkset:null});
+        o.sets+=w.length; o.sessies++;
+        for(const x of w){
+          if((x.w||0)>o.zwaarst) o.zwaarst=x.w||0;
+          if((x.r||0)<=2) uit.singles++; else uit.repsets++;
+          // beste werkset = zwaarste set van 3 herhalingen of meer
+          if((x.r||0)>=3 && (!o.besteWerkset || (x.w||0)>o.besteWerkset.w)) o.besteWerkset={w:x.w||0,r:x.r};
+        }
+      }
+    }
+    return uit;
+  },
+  /* Zware sets: 85% of meer van wat je ooit bij die oefening tilde */
+  zwaarInBlok(van,tot){
+    let n=0;
+    for(const ex of DB.d.exercises){
+      const h=historyFor(ex.id); if(!h.length) continue;
+      let best=0;
+      for(const d of h) for(const s of d.sets) if(!s.sec && (s.w||0)>best) best=s.w||0;
+      if(!best) continue;
+      for(const d of h){ if(d.date<van||d.date>tot) continue;
+        n+=d.sets.filter(s=>!s.sec && (s.w||0)>=best*0.85).length; }
+    }
+    return n;
+  },
+  maak(){
+    const w=this.evalWeken;
+    const tot=today(), van=addDays(tot,-w*7);
+    const vorigTot=addDays(van,-1), vorigVan=addDays(vorigTot,-w*7);
+    const nu=this.blok(van,tot), oud=this.blok(vorigVan,vorigTot);
+    nu.zwaar=this.zwaarInBlok(van,tot); oud.zwaar=this.zwaarInBlok(vorigVan,vorigTot);
+    if(nu.workouts<4) return {teWeinig:true, nu, periode:{van,tot}};
+
+    const bev=[];                                  // bevindingen, met prioriteit
+    const voeg=(prio,k,tekst)=>bev.push({prio,k,tekst});
+
+    // 1. je hoofdoefeningen: wat deed je werkgewicht?
+    const top=Object.entries(nu.oef).sort((a,b)=>b[1].sets-a[1].sets).slice(0,4);
+    const oefRegels=[];
+    for(const [id,o] of top){
+      const v=oud.oef[id];
+      const nuW=o.besteWerkset, ouW=v&&v.besteWerkset;
+      // bij eigen lichaamsgewicht bestaat "zwaarst" niet; dan alleen de sessies
+      let regel=`<b>${esc(exName(id))}</b> — ${o.sessies} ${o.sessies===1?"sessie":"sessies"}`
+              + (o.zwaarst?`, zwaarst ${nf(o.zwaarst)} kg`:"");
+      if(nuW && ouW){
+        const d=nuW.w-ouW.w;
+        regel += d>0 ? `. Je beste werkset ging van ${setTekst(ouW.w,ouW.r,true)} naar <b>${setTekst(nuW.w,nuW.r,true)}</b>.`
+               : d<0 ? `. Je beste werkset zakte van ${setTekst(ouW.w,ouW.r,true)} naar ${setTekst(nuW.w,nuW.r,true)}.`
+                     : `. Je beste werkset bleef ${setTekst(nuW.w,nuW.r,true)}.`;
+      } else if(nuW) regel += `, beste werkset ${setTekst(nuW.w,nuW.r,true)}.`;
+      else regel += ".";
+      oefRegels.push(regel);
+    }
+
+    // 2. duwen tegen trekken
+    if(nu.push+nu.pull>=30){
+      const r=nu.pull/Math.max(1,nu.push);
+      const pct=Math.round(r*100);
+      if(r<0.6) voeg(1,"bad",`Je trok <b>${nu.pull}</b> sets tegen <b>${nu.push}</b> duwsets — dat is ${pct}%. Je bovenrug is het platform waar je vanaf drukt; onder de 60% loopt dat achter. Twee trekoefeningen per week erbij is de goedkoopste winst die je hebt liggen.`);
+      else if(r>1.6) voeg(3,"warn",`Je trok flink meer dan je duwde: ${nu.pull} tegen ${nu.push} sets.`);
+      else voeg(4,"good",`Je duw- en trekwerk zijn in verhouding (${nu.pull} tegen ${nu.push} sets).`);
+    }
+
+    // 3. hoe snel bouwde je op?
+    if(oud.zwaar>=5){
+      const d=Math.round((nu.zwaar/oud.zwaar-1)*100);
+      if(d>=50) voeg(1,"bad",`Je zware sets gingen van <b>${oud.zwaar}</b> naar <b>${nu.zwaar}</b> — ${d}% erbij. Dat is een steile klim. Houd het een paar weken vlak, of schakel een week terug voordat je lichaam dat voor je inplant.`);
+      else if(d<=-40) voeg(3,"warn",`Je zware sets liepen terug van ${oud.zwaar} naar ${nu.zwaar}. Bewust teruggeschakeld, of is het erin geslopen?`);
+    }
+
+    // 4. hoeveel van je werk was bijna-maximaal?
+    const totSets=nu.singles+nu.repsets;
+    if(totSets>=40){
+      const pct=Math.round(nu.singles/totSets*100);
+      if(pct>=20) voeg(2,"warn",`<b>${pct}%</b> van je sets waren één of twee herhalingen (${nu.singles} van ${totSets}). Een zware poging meet je kracht, hij bouwt hem niet — en hij kost herstel dat je niet in opbouwend werk steekt.`);
+    }
+
+    // 5. frequentie
+    const perWeek=Math.round(nu.workouts/w*10)/10, perWeekOud=Math.round(oud.workouts/w*10)/10;
+    if(oud.workouts>=4){
+      if(perWeek>=perWeekOud+0.4) voeg(4,"good",`Je trainde vaker: <b>${nf(perWeek)}×</b> per week tegen ${nf(perWeekOud)}× daarvoor.`);
+      else if(perWeek<=perWeekOud-0.4) voeg(2,"warn",`Je trainde minder vaak: ${nf(perWeek)}× per week tegen ${nf(perWeekOud)}× daarvoor.`);
+    }
+
+    // 6. spiergroepen die achterblijven
+    const achter=Object.keys(STREEF).filter(g=>{
+      const perWeekG=(nu.groep[g]||0)/w;
+      return perWeekG < STREEF[g]*0.4;
+    });
+    if(achter.length) voeg(2,"warn",`Deze groepen kregen minder dan de helft van wat je nastreeft: <b>${achter.join(", ")}</b>.`);
+
+    bev.sort((a,b)=>a.prio-b.prio);
+    return {nu, oud, periode:{van,tot}, vorigePeriode:{van:vorigVan,tot:vorigTot},
+            oefRegels, bevindingen:bev.slice(0,5), perWeek};
+  },
+
   /* ---- Jaaroverzicht -----------------------------------------------------
      Niet om tussen de sets te raadplegen, maar om af en toe terug te lezen.
      Daarom hele zinnen en weinig tegels: "bankdrukken van 40 naar 100 kg"
@@ -3400,6 +3523,145 @@ const Prog={
         Workouts die je vergeten bent in te voeren staan hier dus niet in.</p>`;
   },
   jaarKies(p){ this.jaarPeriode=p; render(); },
+
+  evalKies(w){ this.evalWeken=w; render(); },
+  vorigeEvaluatie(){ const l=DB.d.evaluaties||[]; return l.length?l[l.length-1]:null; },
+  evaluatie(V){
+    const r=this.maak();
+    const w=this.evalWeken;
+    head("Evaluatie", `${dShort(r.periode.van)} tot ${dShort(r.periode.tot)}`,
+      `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
+
+    const keuze=`<div class="seg">
+      ${[[4,"4 weken"],[8,"8 weken"],[12,"12 weken"]].map(([n,l])=>
+        `<button type="button" class="${w===n?"on":""}" onclick="Prog.evalKies(${n})">${l}</button>`).join("")}</div>`;
+
+    if(r.teWeinig){
+      V.innerHTML=keuze+`<div class="card"><div class="empty"><div class="big">Te weinig om over te zeggen</div>
+        <p>Je hebt ${r.nu.workouts} ${r.nu.workouts===1?"workout":"workouts"} in deze periode gelogd.
+        Vanaf een stuk of vier valt er iets te vergelijken.</p></div></div>`;
+      return;
+    }
+
+    const vorige=this.vorigeEvaluatie();
+    const sinds=vorige ? this.sindsVorige(vorige,r) : null;
+
+    V.innerHTML=keuze+`
+      <div class="card card-pad">
+        <p style="font-size:15px;line-height:1.6;color:var(--ink-2)">
+          In ${w} weken deed je <b class="num" style="color:var(--ink)">${r.nu.workouts}</b> workouts
+          (<b class="num" style="color:var(--ink)">${nf(r.perWeek)}×</b> per week) en
+          <b class="num" style="color:var(--ink)">${r.nu.sets}</b> werksets.
+          De ${w} weken daarvóór waren dat er ${r.oud.workouts} en ${r.oud.sets}.</p>
+      </div>
+
+      ${sinds?`<div class="card">
+        <div class="card-head"><div class="card-title">Sinds je vorige evaluatie</div>
+          <span class="chip">${relDate(vorige.datum)}</span></div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px">
+          ${sinds.map(t=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${t}</p>`).join("")}
+        </div></div>`:""}
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Je hoofdoefeningen</div></div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:9px">
+          ${r.oefRegels.map(t=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${t}</p>`).join("")}
+        </div>
+      </div>
+
+      ${r.bevindingen.length?`<div class="card">
+        <div class="card-head"><div class="card-title">Wat opvalt</div></div>
+        <div style="padding:4px 0 6px">
+          ${r.bevindingen.map(b=>`<div class="tip"><div class="tip-bar ${b.k}"></div>
+            <div class="tip-main"><p style="margin:0">${b.tekst}</p></div></div>`).join("")}
+        </div></div>`
+      :`<div class="card card-pad"><p class="mut">Niets bijzonders deze periode. Dat is ook een uitkomst.</p></div>`}
+
+      <div class="card">
+        <div class="card-head"><div class="card-title">Sets per spiergroep</div>
+          <span class="chip">${w} weken</span></div>
+        <div style="padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px">
+          ${(()=>{ const g=r.nu.groep, max=Math.max(1,...Object.values(g));
+            return GROEPEN.filter(k=>g[k]).sort((a,b)=>g[b]-g[a]).map(k=>{
+              const was=r.oud.groep[k]||0, d=g[k]-was;
+              return `<div style="display:flex;align-items:center;gap:10px">
+                <span style="width:84px;flex:none;font-size:12.5px;color:var(--ink-2)">${k}</span>
+                <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+                  <i style="display:block;height:100%;width:${g[k]/max*100}%;background:var(--accent);border-radius:99px"></i></div>
+                <span class="num" style="width:58px;text-align:right;font-size:12px;color:var(--ink-3)">${g[k]}${d?` (${d>0?"+":""}${d})`:""}</span>
+              </div>`;
+            }).join("");
+          })()}
+        </div>
+      </div>
+
+      <button class="btn primary wide" type="button" onclick="Prog.evalBewaar()">Deze evaluatie bewaren</button>
+      <p class="mut" style="padding:0 4px 6px">Bewaren betekent: de volgende evaluatie kan zeggen wat er sindsdien veranderd is.</p>
+      <button class="btn wide" type="button" onclick="Prog.evalBriefing()">Briefing kopiëren voor Claude</button>
+      <p class="mut" style="padding:0 4px 10px">Dit zijn je eigen cijfers door een paar vuistregels gehaald —
+        geen medisch advies, en het weet niets over hoe je je voelt.</p>`;
+  },
+  /* Wat is er veranderd ten opzichte van de vorige bewaarde evaluatie? */
+  sindsVorige(vorige,r){
+    const uit=[];
+    const dagen=daysAgo(vorige.datum);
+    if(dagen<7) return null;
+    for(const [id,o] of Object.entries(r.nu.oef).sort((a,b)=>b[1].sets-a[1].sets).slice(0,3)){
+      const v=vorige.oef&&vorige.oef[id];
+      if(!v||!v.besteWerkset||!o.besteWerkset) continue;
+      const d=o.besteWerkset.w-v.besteWerkset.w;
+      if(d>0) uit.push(`<b>${esc(exName(id))}</b>: je beste werkset ging van ${setTekst(v.besteWerkset.w,v.besteWerkset.r,true)} naar <b>${setTekst(o.besteWerkset.w,o.besteWerkset.r,true)}</b>.`);
+      else if(d<0) uit.push(`<b>${esc(exName(id))}</b>: je beste werkset zakte van ${setTekst(v.besteWerkset.w,v.besteWerkset.r,true)} naar ${setTekst(o.besteWerkset.w,o.besteWerkset.r,true)}.`);
+    }
+    if(vorige.push!==undefined && r.nu.push+r.nu.pull>=30){
+      const nuPct=Math.round(r.nu.pull/Math.max(1,r.nu.push)*100);
+      const ouPct=Math.round(vorige.pull/Math.max(1,vorige.push)*100);
+      if(Math.abs(nuPct-ouPct)>=8)
+        uit.push(`Je trek-duwverhouding ging van <b>${ouPct}%</b> naar <b>${nuPct}%</b>.`);
+    }
+    return uit.length?uit:null;
+  },
+  evalBewaar(){
+    const r=this.maak(); if(r.teWeinig) return toast("Te weinig om te bewaren");
+    const oef={};
+    for(const [id,o] of Object.entries(r.nu.oef)) oef[id]={sets:o.sets, zwaarst:o.zwaarst, besteWerkset:o.besteWerkset};
+    if(!DB.d.evaluaties) DB.d.evaluaties=[];
+    DB.d.evaluaties.push({datum:today(), weken:this.evalWeken, workouts:r.nu.workouts,
+      sets:r.nu.sets, push:r.nu.push, pull:r.nu.pull, groep:r.nu.groep, oef});
+    if(DB.d.evaluaties.length>12) DB.d.evaluaties.shift();   // een jaar is genoeg
+    DB.save(); render(); toast("Bewaard — de volgende evaluatie vergelijkt hiermee");
+  },
+  evalBriefing(){
+    const r=this.maak(); if(r.teWeinig) return toast("Te weinig om over te schrijven");
+    const t=[];
+    t.push(`MIJN TRAINING, ${dShort(r.periode.van)} TOT ${dShort(r.periode.tot)} (uit Rep King)`);
+    t.push(`${r.nu.workouts} workouts (${nf(r.perWeek)} per week), ${r.nu.sets} werksets. De ${this.evalWeken} weken daarvoor: ${r.oud.workouts} workouts, ${r.oud.sets} werksets.`);
+    t.push("");
+    t.push("HOOFDOEFENINGEN");
+    for(const [id,o] of Object.entries(r.nu.oef).sort((a,b)=>b[1].sets-a[1].sets).slice(0,6)){
+      const v=r.oud.oef[id];
+      t.push(`- ${exName(id)}: ${o.sessies} sessies, ${o.sets} sets`
+        + (o.zwaarst?`, zwaarst ${nf(o.zwaarst)} kg`:"")
+        + (o.besteWerkset?`, beste werkset ${setTekst(o.besteWerkset.w,o.besteWerkset.r,true)}`:"")
+        + (v&&v.besteWerkset?` (vorige periode ${setTekst(v.besteWerkset.w,v.besteWerkset.r,true)})`:""));
+    }
+    t.push("");
+    t.push("SETS PER SPIERGROEP");
+    const g=r.nu.groep;
+    t.push(GROEPEN.filter(k=>g[k]).sort((a,b)=>g[b]-g[a])
+      .map(k=>`${k} ${g[k]}${r.oud.groep[k]!==undefined?` (was ${r.oud.groep[k]})`:""}`).join(", "));
+    t.push("");
+    t.push(`Duwsets ${r.nu.push}, treksets ${r.nu.pull}. Zware sets ${r.nu.zwaar} (vorige periode ${r.oud.zwaar}).`);
+    t.push(`Sets van 1-2 herhalingen: ${r.nu.singles} van ${r.nu.singles+r.nu.repsets}.`);
+    t.push("");
+    t.push("Kijk hiernaar als mijn coach: wat gaat goed, wat moet anders, en wat zou je de komende weken veranderen?");
+    const tekst=t.join("\n");
+    Sheet.open("Briefing voor Claude",`
+      <p class="mut">Kopieer deze tekst en plak hem in een gesprek. Daar kun je wél doorvragen —
+        de app zelf kan dat niet.</p>
+      <textarea class="ctrl" id="evBrief" style="height:230px;font-size:12.5px" readonly>${esc(tekst)}</textarea>
+      <button class="btn primary wide" type="button" onclick="kopieerVeld('#evBrief','Gekopieerd')">Kopiëren</button>`);
+  },
 
   trend(h){
     if(h.length<6) return null;
