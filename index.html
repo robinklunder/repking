@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 21:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 13:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -3311,10 +3311,12 @@ const Prog={
     });
   },
 
-  /* Ga je vooruit op deze oefening? Drie sessies tegen de drie daarvóór, en
-     per blok de béste — niet de eerste tegen de laatste. Eén lichte dag na een
-     zware single zei anders meteen "zakt", terwijl er niets aan de hand was.
-     Pas bij 4% verschil noemen we het iets; daartussen is het gewoon vlak. */
+  /* Ga je vooruit op deze oefening? Zes weken tegen de zes daarvóór, per venster
+     de béste werkset. Eerst stonden hier drie sessies tegen drie — dat is
+     anderhalve week, en een testdag plus een rustige week liet de bankdruk
+     "zakken" terwijl er vier dagen eerder 110 kg op de stang lag. Een record in
+     het recente venster blokkeert daarom "zakt". Een oefening die je zes weken
+     niet deed krijgt geen label: daar valt niets over te zeggen. */
   /* ---- Evaluatie ---------------------------------------------------------
      Acht weken tegen de acht daarvóór. Dat venster zit bewust tussen Tips (die
      per oefening naar een kort stukje kijkt) en het jaaroverzicht (dat te ver
@@ -3714,13 +3716,35 @@ const Prog={
 
   trend(h){
     if(h.length<6) return null;
-    // alleen werksets: zware pogingen van één herhaling horen hier niet in
-    const e=h.map(d=>{ const b=besteWerkset(d.sets); return b?b.e1:0; }).filter(v=>v>0);
-    if(e.length<6) return null;
-    const nu=Math.max(...e.slice(-3)), eerder=Math.max(...e.slice(-6,-3));
-    if(!eerder) return null;
-    if(nu>eerder*1.04) return {k:"good",t:"↑ groeit"};
-    if(nu<eerder*0.96) return {k:"bad",t:"↓ zakt"};
+    const WEEK=6048e5, nu=Date.now();
+    // het beste uit een venster: werkset met gewicht, en voor eigen gewicht de reps
+    const venster=(vanaf,tot)=>{
+      const r={n:0, e1:0, kg:0, reps:0};
+      for(const d of h){
+        const wk=(nu-dParse(d.date).getTime())/WEEK;
+        if(wk<vanaf || wk>=tot) continue;
+        r.n++;
+        const b=besteWerkset(d.sets);
+        if(b && b.e1>r.e1) r.e1=b.e1;
+        for(const s of d.sets){
+          if(s.sec || s.t==="warmup") continue;
+          if(s.w>r.kg) r.kg=s.w;
+          if(!(s.w>0) && s.r>r.reps) r.reps=s.r;
+        }
+      }
+      return r;
+    };
+    const A=venster(0,6), B=venster(6,12);
+    if(!A.n) return null;                         // zes weken niet gedaan
+    const maat=v=> v.e1 || v.reps;
+    if(!maat(A) || !maat(B)) return null;
+
+    const top=venster(0,1e4);                     // alles, om records te herkennen
+    const record = (A.e1 && A.e1>=top.e1) || (A.kg && A.kg>=top.kg) || (A.reps && A.reps>=top.reps);
+
+    const g=maat(A)/maat(B);
+    if(g>1.03) return {k:"good",t:"↑ groeit"};
+    if(g<0.95) return record ? {k:"warn",t:"→ vlak"} : {k:"bad",t:"↓ zakt"};
     return {k:"warn",t:"→ vlak"};
   },
 
@@ -3749,7 +3773,8 @@ const Prog={
       </div>
       <div class="card">
         <div class="card-head"><div class="card-title">Kracht per training</div>
-          <span class="chip ${(this.trend(h)||{k:""}).k}">${(this.trend(h)||{t:"nog te weinig"}).t}</span></div>
+          ${(()=>{ const tr=this.trend(h);
+                   return tr ? `<span class="chip ${tr.k}">${tr.t}</span>` : ""; })()}</div>
         <div class="chartwrap" style="padding:0 4px"><canvas id="cE1"></canvas></div>
         <div style="padding:0 14px 13px"><p class="mut" style="font-size:12px">
           Alleen je werksets van 3 herhalingen of meer. Zware pogingen van één herhaling staan er
@@ -4546,7 +4571,7 @@ const Tips={
         if(groeit++<2) add("good","Groeit",`${exName(id)} loopt goed`,
           `Je zwaarste set is nu <b class="num">${setTekst(nu3.w,nu3.r,true)}</b>, en je gaat er nog steeds op vooruit.`,
           `Blijf op dit spoor. Voeg volgende keer 2,5 kg toe óf één herhaling per set — niet allebei tegelijk.`,1);
-      } else if(vNu<=vEerder*1.005){
+      } else if(vNu<=vEerder*1.005 && daysAgo(piekDatum)>=42){   // voorwaarde 4
         stil.push({id,zwaarst:zwaarste(),wkn:Math.max(1,Math.round(daysAgo(piekDatum)/7)),
                    reps:this.vaakstReps(h)});
       }
@@ -5625,7 +5650,7 @@ const Imp={
    Compact opgeslagen: n = oefeningnamen, s = [datum, naam, [[naamnr, notitie,
    [[kg, herhalingen, opwarmset, aantal keer]]]]], g = lichaamsgewicht.
    ============================================================================ */
-const SEED = null;   // bewust leeg: de publieke versie bevat geen persoonlijke data
+const SEED = null;   // bewust leeg: de publieke versie bevat geen trainingsdata
 
 function laadStartdata(){
   if(!SEED || !SEED.s || !SEED.s.length) return 0;
