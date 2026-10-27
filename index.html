@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 16:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 21:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1054,6 +1054,35 @@ function recordsVoor(exId, sets, exclSessionId){
     eerder.push(...w);
   }
   return recordsUit(sets, eerder, maxSets);
+}
+
+/* De beste wérkset van een reeks: drie herhalingen of meer.
+
+   Waarom dit onderscheid ertoe doet: een zware poging van één herhaling en een
+   normale trainingsdag zijn twee verschillende dingen. Zet je ze op één lijn,
+   dan duikt die lijn omlaag zodra je na een testdag weer gewoon traint — en
+   dan lijkt het alsof je achteruitgaat terwijl er niets aan de hand is. */
+function besteWerkset(sets){
+  let b=null;
+  for(const s of sets){
+    if(s.sec || (s.r||0)<3 || !(s.w>0)) continue;
+    const e=e1rm(s.w,s.r);
+    if(!b || e>b.e1) b={e1:e, w:s.w, r:s.r, set:s};
+  }
+  return b;
+}
+/* Je beste set ooit per herhalingsaantal: 1 × 110, 3 × 100, 5 × 90, …
+   Dat is het hele krachtprofiel in plaats van één getal, en bijna elke
+   training zit er wel ergens tegenaan. */
+function repMaxima(exId, exclSessionId){
+  const h=historyFor(exId,exclSessionId);
+  const beste={};
+  for(const d of h) for(const s of d.sets){
+    if(s.sec || !(s.w>0) || !(s.r>0) || s.r>15) continue;
+    const r=s.r;
+    if(!beste[r] || s.w>beste[r].w) beste[r]={w:s.w, datum:d.date};
+  }
+  return beste;
 }
 
 /* Records voor een oefening op basis van alle geschiedenis */
@@ -2404,14 +2433,14 @@ const Train={
   _rirVoor:null,
   rirRij(s,i,j){
     const actief=this._rirVoor && this._rirVoor.i===i && this._rirVoor.j===j;
-    if(!s.done || s.sec) return "";
+    if(!s.done || s.sec || s.t==="warmup") return "";
     if(!actief){
       return (s.rir===null||s.rir===undefined) ? ""
         : `<button class="rirklaar" type="button" onclick="Train.rirOpnieuw(${i},${j})">
              ${s.rir===0?"ging er helemaal doorheen":`${s.rir} nog in de tank`}</button>`;
     }
     return `<div class="rirrij">
-      <span>Nog in de tank?</span>
+      <span>Laatste set — nog in de tank?</span>
       ${[0,1,2,3,4].map(n=>`<button type="button" class="${s.rir===n?"on":""}"
           onclick="Train.zetRir(${i},${j},${n})">${n===4?"4+":n}</button>`).join("")}
       <button type="button" class="over" onclick="Train.zetRir(${i},${j},null)">sla over</button>
@@ -2424,6 +2453,10 @@ const Train={
     DB.save(); render();
   },
   rirOpnieuw(i,j){ this._rirVoor={i,j}; render(); },
+  zetRirUitMenu(i,j,n){
+    DB.d.active.entries[i].sets[j].rir=n;
+    DB.save(); Sheet.close(); render();
+  },
 
   /* Eigen lichaamsgewicht aan of uit voor deze set */
   togBw(i,j){
@@ -2449,10 +2482,13 @@ const Train={
                if(h&&h.sets[j]){ s.w=h.sets[j].w; s.r=h.sets[j].r; s.bw=!!h.sets[j].bw; } }
       }
       s.done=true; s.ts=Date.now();
-      // Vraag meteen hoeveel er nog in zat. Alleen bij deze ene set, en alleen
-      // als er een gewicht of herhaling in staat — bij een lege set heeft het
-      // geen betekenis.
-      this._rirVoor = (s.r && !s.sec) ? {i,j} : null;
+      // Vraag pas hoeveel er nog in zat als de oefening klaar is: één keer per
+      // oefening in plaats van na elke set. Je weet het aan het eind nog prima,
+      // en vier keer achter elkaar iets aantikken tussen zware sets door is
+      // precies het soort onderbreking dat je niet wilt.
+      // Nooit bij een opwarmset — daar heeft "nog in de tank" geen betekenis.
+      const klaar = e.sets.every(x=>x.done || x.t==="warmup");
+      this._rirVoor = (s.r && !s.sec && s.t!=="warmup" && klaar) ? {i,j} : null;
       const p=this.checkPR(e.exId,s,a.id);
       render();
       if(p) toast(p);
@@ -2483,6 +2519,14 @@ const Train={
     const opt=[["work","Werkset"],["warmup","Opwarmset"],["drop","Dropset"],["fail","Tot falen"]];
     Sheet.open("Set aanpassen",`
       <div class="seg">${opt.map(([k,l])=>`<button type="button" class="${s.t===k?"on":""}" onclick="Train.setType(${i},${j},'${k}')">${l}</button>`).join("")}</div>
+      ${s.done&&s.t!=="warmup"&&!s.sec?`
+      <div class="field"><label>Nog in de tank bij deze set</label>
+        <div class="seg">
+          ${[0,1,2,3,4].map(n=>`<button type="button" class="${s.rir===n?"on":""}"
+             onclick="Train.zetRirUitMenu(${i},${j},${n})">${n===4?"4+":n}</button>`).join("")}
+          <button type="button" class="${(s.rir===null||s.rir===undefined)?"on":""}"
+             onclick="Train.zetRirUitMenu(${i},${j},null)">–</button>
+        </div></div>`:""}
       <button class="btn danger wide" type="button" onclick="Train.delSet(${i},${j})">Set verwijderen</button>`);
   },
   setType(i,j,t){ DB.d.active.entries[i].sets[j].t=t; DB.save(); Sheet.close(); render(); },
@@ -3670,7 +3714,8 @@ const Prog={
 
   trend(h){
     if(h.length<6) return null;
-    const e=h.map(d=>bestOf(d.sets).e1).filter(v=>v>0);
+    // alleen werksets: zware pogingen van één herhaling horen hier niet in
+    const e=h.map(d=>{ const b=besteWerkset(d.sets); return b?b.e1:0; }).filter(v=>v>0);
     if(e.length<6) return null;
     const nu=Math.max(...e.slice(-3)), eerder=Math.max(...e.slice(-6,-3));
     if(!eerder) return null;
@@ -3691,7 +3736,8 @@ const Prog={
        achteruitgang, terwijl dat juist sterker is. Er staan bewust geen
        getallen langs de as — het is een verhouding, geen gewicht dat hij
        getild heeft. De echte sets staan in de tabel eronder.               */
-    const pts=h.map(d=>({x:dParse(d.date).getTime(),y:bestOf(d.sets).e1}))
+    const pts=h.map(d=>{ const b=besteWerkset(d.sets);
+                         return {x:dParse(d.date).getTime(), y:b?b.e1:0}; })
                 .filter(p=>p.y>0);
     const volPts=h.map(d=>({x:dParse(d.date).getTime(),y:Math.round(bestOf(d.sets).vol)}));
 
@@ -3706,9 +3752,35 @@ const Prog={
           <span class="chip ${(this.trend(h)||{k:""}).k}">${(this.trend(h)||{t:"nog te weinig"}).t}</span></div>
         <div class="chartwrap" style="padding:0 4px"><canvas id="cE1"></canvas></div>
         <div style="padding:0 14px 13px"><p class="mut" style="font-size:12px">
-          Hoger is sterker. Herhalingen tellen mee, dus 4 × 100 kg staat hoger dan 1 × 105 kg.
-          Je echte sets staan onderin.</p></div>
+          Alleen je werksets van 3 herhalingen of meer. Zware pogingen van één herhaling staan er
+          bewust niet in: anders duikt de lijn omlaag zodra je na een testdag weer gewoon traint.</p></div>
       </div>
+
+      ${(()=>{
+        const rm=repMaxima(exId);
+        const rijen=Object.keys(rm).map(Number).sort((a,b)=>a-b);
+        if(rijen.length<3) return "";
+        const max=Math.max(...rijen.map(r=>rm[r].w));
+        return `<div class="card">
+          <div class="card-head"><div class="card-title">Je beste per herhalingen</div>
+            <span class="chip">ooit</span></div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:7px">
+            ${rijen.map(r=>{
+              const v=rm[r], vers=daysAgo(v.datum)<=28;
+              return `<div style="display:flex;align-items:center;gap:10px">
+                <span class="num" style="width:50px;flex:none;font-size:12.5px;color:var(--ink-2)">${r} ${r===1?"rep":"reps"}</span>
+                <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+                  <i style="display:block;height:100%;width:${v.w/max*100}%;border-radius:99px;
+                     background:${vers?"var(--good)":"var(--accent)"}"></i></div>
+                <span class="num" style="width:54px;text-align:right;font-size:12.5px;color:var(--ink-3)">${nf(v.w)} kg</span>
+              </div>`;
+            }).join("")}
+          </div>
+          <div style="padding:0 14px 13px"><p class="mut" style="font-size:12px">
+            Groen betekent: in de afgelopen vier weken neergezet. Elke rij is een record dat je kunt
+            aanvallen — je hoeft niet altijd je zwaarste te verbeteren om vooruit te gaan.</p></div>
+        </div>`;
+      })()}
       <div class="card">
         <div class="card-head"><div class="card-title">Volume per sessie</div></div>
         <div class="chartwrap" style="height:150px;padding:0 4px"><canvas id="cV2"></canvas></div>
@@ -4451,7 +4523,10 @@ const Tips={
       const h=historyFor(id);
       if(h.length<8) continue;
       if(daysAgo(h[h.length-1].date)>28) continue;        // oefening doe je niet meer
-      const e=h.map(d=>({d:d.date,v:bestOf(d.sets).e1})).filter(x=>x.v>0);
+      // werksets, niet de zware pogingen — anders heet een testdag "vooruitgang"
+      // en de gewone training erna "stilstand"
+      const e=h.map(d=>{ const b=besteWerkset(d.sets); return {d:d.date, v:b?b.e1:0}; })
+               .filter(x=>x.v>0);
       if(e.length<8) continue;
       const nu=e.slice(-4), eerder=e.slice(-10,-4);
       if(eerder.length<3) continue;
