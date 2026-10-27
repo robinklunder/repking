@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 13:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 15:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1004,6 +1004,86 @@ function voorstelVoor(exId, exclSessionId){
   if(rir!==null && rir>=3)
     return maak(rond(kg+sprong), `Je zat op ${setsTekst}${rirTekst}. Je bent nog niet aan de bovenkant van je bereik, maar het kostte je weinig — dit gewicht mag omhoog.`, "omhoog");
   return maak(kg, `Je zat op ${setsTekst}${rirTekst}. Blijf op ${nf(kg)} kg en werk naar ${doel.max} herhalingen in elke set.`, "zelfde");
+}
+
+/* ---- Focusoefening ---------------------------------------------------------
+   De oefening waar je programma omheen draait. Niet iets wat je instelt maar
+   iets wat we aflezen: welke oefening deed je de laatste twaalf weken het
+   vaakst, en dan vooral zwaar (sets van 1 tot 5 herhalingen)? Bij Robin wint
+   bankdrukken met 166 punten tegen 34 voor de nummer twee, dus daar valt niets
+   te twijfelen. Verschuift zijn focus ooit naar squat of deadlift, dan schuift
+   dit mee zonder dat hij iets hoeft aan te zetten.                           */
+function focusOefening(){
+  let beste=null;
+  for(const ex of DB.d.exercises){
+    if(ex.arch || ex.type==="cardio") continue;
+    const h=historyFor(ex.id).filter(d=>daysAgo(d.date)<=84);
+    if(h.length<6) continue;
+    let zwaar=0;
+    for(const d of h) for(const s of d.sets){
+      if(s.sec || !(s.w>0)) continue;
+      if(s.r>=1 && s.r<=5) zwaar++;
+    }
+    if(zwaar<6) continue;                       // geen oefening die je zwaar traint
+    const score=h.length*2+zwaar;
+    if(!beste || score>beste.score) beste={id:ex.id, ex, score, sessies:h.length};
+  }
+  return beste;
+}
+
+/* Was dat een zware dag of een volumedag? Startte je de workout vanuit het
+   voorstel, dan staat de taak gewoon op de sessie. Zo niet, dan leiden we hem
+   af uit de mediaan van je werksets — met de kanttekening dat daar bij Robin
+   twaalf van de twaalf keer "zwaar" uit komt. Hij hééft geen volumedagen; dat
+   is precies het gat dat dit voorstel moet vullen.                          */
+function taakVan(sessie, exId){
+  if(sessie && sessie.taak) return sessie.taak;
+  const e=((sessie&&sessie.entries)||[]).find(x=>x.exId===exId);
+  if(!e) return null;
+  const reps=e.sets.filter(s=>!s.sec && s.w>0 && s.t!=="warmup")
+                   .map(s=>s.r||0).sort((a,b)=>a-b);
+  if(!reps.length) return null;
+  return reps[Math.floor(reps.length/2)]<=5 ? "zwaar" : "volume";
+}
+
+/* Het gewicht voor een volumedag: het zwaarste waarop je ooit zes of meer
+   herhalingen maakte. Heb je dat nooit gedaan, dan rekenen we terug vanaf je
+   zwaarste werkset — ongeveer een achtste eraf. Nooit verzinnen: is er geen
+   geschiedenis, dan geven we niets terug.                                   */
+function volumeGewicht(exId){
+  const h=historyFor(exId);
+  let metReps=0;
+  for(const d of h) for(const s of d.sets){
+    if(s.sec || !(s.w>0)) continue;
+    if(s.r>=6 && s.w>metReps) metReps=s.w;
+  }
+  if(metReps) return metReps;
+  const w=werkGewicht(exId);
+  return w ? Math.round(w*0.88/2.5)*2.5 : null;
+}
+
+/* Je werkgewicht: het zwaarste waarmee je ooit drie of meer herhalingen deed.
+   Dit is de maat waar een rustige week vanaf rekent, níet je zwaarste poging
+   ooit — 80% van een maximale single is bij Robin 88 kg, en dat is gewoon zijn
+   normale zware werkgewicht. Dan deload je niets.                           */
+function werkGewicht(exId){
+  const h=historyFor(exId);
+  let w=0;
+  for(const d of h) for(const s of d.sets)
+    if(!s.sec && s.w>0 && s.r>=3 && s.w>w) w=s.w;
+  return w||null;
+}
+
+/* Je zwaarste set ooit bij deze oefening — een getal dat je écht getild hebt,
+   geen schatting. Daar meten we je doel-1RM tegen af.                       */
+function zwaarsteOoit(exId){
+  const h=historyFor(exId);
+  let w=0, r=0;
+  for(const d of h) for(const s of d.sets){
+    if(s.sec || !(s.w>0)) continue;
+    if(s.w>w){ w=s.w; r=s.r||0; }
+  }
+  return w ? {w,r} : null;
 }
 
 /* Je record bij een oefening, in gewone taal: de zwaarste set die je ooit
@@ -1785,7 +1865,7 @@ const Advies={
   },
   index(opties){ return Math.min(this.keuze,opties.length-1); },
   voorstel(){
-    const a=this.alle();
+    const a=this.opties();
     return a.length ? a[this.index(a)] : null;
   },
   kies(i){ this.keuze=i; render(); },
@@ -1794,12 +1874,18 @@ const Advies={
      dan die hij het langst niet heeft gedaan. Heeft hij voor een groep nog
      niets staan — zoals bilspieren en kuiten — dan pakken we een standaard-
      oefening uit de bibliotheek, want anders blijft die groep leeg.        */
-  kiesOefeningen(groepen){
+  /* `vaak` draait de rangschikking om. Normaal wint de oefening die je het
+     langst liet liggen — goed om je lichaam in balans te houden. Maar op een
+     dag die een doel dient, wil je juist de oefeningen die je echt draait:
+     anders stelt de trekdag kettlebell swings voor terwijl de opdracht over
+     zware rijen en face pulls gaat. */
+  kiesOefeningen(groepen,vaak,verdeling){
     const uit=[];
     // de urgentste groep krijgt er twee, de rest één, tot je op ~5 oefeningen zit
-    const aantal=groepen.map((_,i)=>i===0?2:1);
-    for(let i=1; aantal.reduce((a,b)=>a+b,0)<4 && i<groepen.length*3; i++)
-      aantal[i%groepen.length]=Math.min(3,aantal[i%groepen.length]+1);
+    const aantal=verdeling ? verdeling.slice() : groepen.map((_,i)=>i===0?2:1);
+    if(!verdeling)
+      for(let i=1; aantal.reduce((a,b)=>a+b,0)<4 && i<groepen.length*3; i++)
+        aantal[i%groepen.length]=Math.min(3,aantal[i%groepen.length]+1);
 
     // Eén oefening kan bij meerdere groepen horen. We houden bij wat we al
     // voorgesteld hebben, anders staat bankdrukken er twee keer in op een duwdag.
@@ -1832,7 +1918,8 @@ const Advies={
       // Binnen wat je écht doet telt vooral hoe lang je het niet gedaan hebt.
       // De dagen kappen we op 60, anders wint iets van een half jaar geleden
       // altijd van een oefening die gewoon in je programma zit.
-      const gewicht=k=>Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
+      const gewicht=k=> vaak ? k.sessies*3+Math.min(k.dagen,21)*0.3
+                             : Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
       lijst.sort((a,b)=>gewicht(b)-gewicht(a));
 
       if(!lijst.length){
@@ -1851,7 +1938,8 @@ const Advies={
     // die je echt doet, uit de groepen van vandaag, die je het langst liet liggen.
     const doel=aantal.reduce((a,b)=>a+b,0);
     if(uit.length<doel){
-      const gewicht=k=>Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
+      const gewicht=k=> vaak ? k.sessies*3+Math.min(k.dagen,21)*0.3
+                             : Math.min(k.dagen,60)+Math.min(k.sessies,12)*3;
       const rest=DB.d.exercises
         .filter(e=>!e.arch && !e.nietVoorstellen && e.type!=="cardio"
                 && !gekozen.has(e.id) && weg.indexOf(e.id)<0
@@ -1868,9 +1956,178 @@ const Advies={
     return uit;
   },
 
+  /* ---- Het plan rond je focusoefening -------------------------------------
+     Hiervóór keek dit scherm alleen naar spiergroepen met een achterstand.
+     Dat is prima om je lichaam in balans te houden, maar het weet niets van
+     een doel. Wie zijn bankdruk omhoog wil hebben, heeft een week met vaste
+     taken nodig: zwaar, volume, en genoeg trekwerk om vanaf te kunnen drukken.
+
+     De ladder hieronder beantwoordt één vraag — voor welke sessie is het
+     vandaag tijd? — en de eerste regel die past, wint. De rest blijft als
+     alternatief staan, want dit is een voorstel en geen voorschrift.
+
+     Volgorde: herstel gaat voor alles, dan een rustweek, dan een maxdag, dan
+     de ondergrens van twee bankdagen per week, dan het grootste gat in je
+     verhouding duwen/trekken, en pas daarna de gewone afwisseling.          */
+  bankplan(){
+    const f=focusOefening(); if(!f) return null;
+    const h=historyFor(f.id); if(h.length<6) return null;
+
+    const laatst=h[h.length-1];
+    const dagen=daysAgo(laatst.date);
+    const laatste7=h.filter(d=>daysAgo(d.date)<7).length;
+    const sessieVan=id=>DB.d.sessions.find(s=>s.id===id);
+    const vorigeTaak=taakVan(sessieVan(laatst.sessionId),f.id);
+
+    // duwen tegen trekken over twee weken: de bovenrug is het platform waar je
+    // vanaf drukt, en bij Robin is dat al maanden het grootste gat
+    let duw=0, trek=0, trekDagen=999;
+    for(const s of DB.d.sessions){
+      const d=daysAgo(s.date); if(d<0||d>=14) continue;
+      for(const e of s.entries){
+        const ex=exById(e.exId); if(!ex||ex.type==="cardio") continue;
+        const n=e.sets.filter(x=>isWork(x)&&!x.sec).length; if(!n) continue;
+        const g=exGroepen(ex);
+        if(g.some(x=>x==="Borst"||x==="Schouders"||x==="Triceps")) duw+=n;
+        if(g.some(x=>x==="Rug"||x==="Biceps")){ trek+=n; if(d<trekDagen) trekDagen=d; }
+      }
+    }
+    const trekPct = duw ? Math.round(trek/duw*100) : 100;
+
+    // Zware sets per week, om te zien of je al te lang achter elkaar hoog zit.
+    // "Zwaar" is hier: minstens 85% van je zwaarste werkset, in zes of minder
+    // herhalingen. Een rustweek is een week met minder dan de helft daarvan.
+    const zw=zwaarsteOoit(f.id);
+    const drempel=zw ? zw.w*0.85 : 0;
+    const perWeek=[0,0,0,0,0,0,0,0];
+    for(const d of h){
+      const wk=Math.floor(daysAgo(d.date)/7); if(wk<0||wk>7) continue;
+      for(const s of d.sets) if(!s.sec && s.w>=drempel && s.r<=6) perWeek[wk]++;
+    }
+    const gem=perWeek.reduce((a,b)=>a+b,0)/8;
+    const lichteWeek=perWeek.slice(0,6).some(v=>v<gem*0.5);
+    const rustweekNodig = gem>=3 && !lichteWeek;
+
+    const mx=maxMoment(f.id);
+    const naam=f.ex.name;
+    const doel=doelVan(f.ex);
+    const volKg=volumeGewicht(f.id);
+    const vs=voorstelVoor(f.id);
+
+    /* Elke regel levert een optie op. `focus` betekent: zet de focusoefening
+       bovenaan de oefeningenlijst. `prio` bepaalt de volgorde.              */
+    const O=[];
+    const push=(o)=>O.push(o);
+
+    if(rustweekNodig) push({soort:"rust", prio:1, naam:"Rustige week",
+      groepen:["Borst","Triceps","Rug"], verdeling:[1,1,1], focus:true,
+      waarom:`Je draait al zes weken ${Math.round(gem)} zware sets per week zonder een lichte week ertussen. Dat is het patroon dat bij jou twee keer op een blessure uitliep.`,
+      opdracht:`Zelfde oefeningen, een derde minder sets. ${esc(naam)} op ongeveer ${nf(Math.round((werkGewicht(f.id)||0)*0.85/2.5)*2.5)} kg, en stop elke set met twee of drie in de tank.`});
+
+    if(mx && dagen>=3 && !rustweekNodig) push({soort:"max", prio:2, naam:"Maxdag",
+      groepen:["Borst","Triceps","Schouders"], verdeling:[2,1,1], focus:true,
+      waarom:mx.tekst,
+      opdracht:`Warm rustig op, werk in stappen omhoog en ga voor één zware poging. Daarna stoppen — een max meet je kracht, hij bouwt hem niet.`});
+
+    const zwaarDag={soort:"zwaar", naam:"Zware dag",
+      groepen:["Borst","Triceps","Schouders"], verdeling:[2,1,1], focus:true,
+      waarom:`Dit is de sessie waar je maximum van omhoog gaat: weinig herhalingen, veel gewicht. Je laatste ${esc(naam.toLowerCase())} was ${dagen===1?"gisteren":dagen+" dagen geleden"}.`,
+      opdracht: vs ? `${doel.sets} sets van ${doel.min}–${doel.max} op ${nf(vs.kg)} kg. ${vs.reden}`
+                   : `${doel.sets} sets van ${doel.min}–${doel.max} herhalingen.`};
+    const volumeDag={soort:"volume", naam:"Volumedag",
+      groepen:["Borst","Triceps","Schouders"], verdeling:[2,1,1], focus:true,
+      waarom:`Zware sets maken je sterker, maar het weefsel dat die kracht moet dragen bouw je met herhalingen. Jij draait ${esc(naam.toLowerCase())} vrijwel altijd zwaar — dit is het stuk dat ontbreekt.`,
+      opdracht: volKg ? `3 tot 4 sets van 6–8 op ongeveer ${nf(volKg)} kg. Dat is bewust lichter: het doel is nette herhalingen, niet afzien.`
+                      : `3 tot 4 sets van 6–8 herhalingen, ongeveer een achtste lichter dan je zware dag.`};
+    const trekDag={soort:"trek", naam:"Trekdag", groepen:["Rug","Biceps"], verdeling:[3,1], focus:false,
+      waarom: duw ? `Je rug kreeg de laatste twee weken ${trek} sets tegen ${duw} voor je duwwerk — ${trekPct}%. De bovenrug is het platform waar je vanaf drukt: hoe steviger je schouderbladen vastliggen, hoe korter de baan van de stang.`
+                  : `Je hebt de laatste twee weken geen trekwerk gelogd. De bovenrug is het platform waar je vanaf drukt.`,
+      // Bewust geen oefeningen bij naam: face pulls staan bij hem onder
+      // Schouders en vallen dus buiten een trekdag. Liever zeggen wát je moet
+      // doen dan een oefening beloven die niet in de lijst staat.
+      opdracht:`3 tot 4 sets van 6–8 op je zware rijen, en daarnaast iets lichters van 15–20 voor je achterste schouderkop. Die twee samen houden je schouderbladen op hun plek als de stang zwaar wordt.`};
+    const benenDag={soort:"benen", naam:"Benendag",
+      groepen:["Quadriceps","Hamstrings","Bilspieren","Kuiten"], focus:false,
+      waarom:`Je bankdrukdagen en je trekwerk zijn deze week gedekt. Benen kosten je nu niets van je bankdruk en houden de rest in balans.`,
+      opdracht:``};
+
+    // Herstel gaat voor: gisteren gebankt is vandaag geen bankdag.
+    const magBanken = dagen>=2 && !rustweekNodig;
+    // Ondergrens: twee bankdagen in de laatste zeven dagen. Zit je daaronder
+    // en ben je uitgerust, dan gaat de bankdag voor het trekwerk.
+    const onderGrens = laatste7<2;
+    // Bovengrens: bij drie bankdagen in een week is het genoeg geweest.
+    const vol = laatste7>=3;
+    const trekAchter = trekPct<60 && trekDagen>=2;
+
+    const bank = vorigeTaak==="zwaar" ? volumeDag : zwaarDag;
+
+    if(magBanken && onderGrens)           push({...bank, prio:3});
+    if(trekAchter)                        push({...trekDag, prio:4});
+    if(magBanken && !onderGrens && !vol)  push({...bank, prio:5});
+    if(!trekAchter)                       push({...trekDag, prio:6});
+    push({...benenDag, prio:7});
+    if(magBanken && vol)                  push({...bank, prio:8});
+
+    // oefeningen erbij, en opties zonder bruikbare oefeningen vallen af
+    const uit=[];
+    const gezien=new Set();
+    const m=this.meting();          // één keer: dit loopt over je hele logboek
+    for(const o of O.sort((a,b)=>a.prio-b.prio)){
+      if(gezien.has(o.soort)) continue;
+      gezien.add(o.soort);
+      // Op een dag die je doel dient: de oefeningen die je écht draait, en het
+      // zwaartepunt op de groep waar het om gaat. Zonder die verdeling kwamen
+      // er op de trekdag twee bicepsoefeningen in te staan en verdwenen de
+      // face pulls uit beeld — precies waar zijn gat zit.
+      let oef=this.kiesOefeningen(o.groepen, o.soort!=="benen", o.verdeling)
+                  .filter(x=>x.id!==f.id);
+      if(o.focus && this.weggedrukt().indexOf(f.id)<0){
+        const b=bestOf(laatst.sets);
+        oef.unshift({id:f.id, naam, sessies:h.length, dagen,
+                     w:b.w, r:b.r, groep:exGroepen(f.ex)[0]});
+      }
+      oef=oef.slice(0,5);
+      if(oef.length<2) continue;
+      uit.push({...o, oefeningen:oef, dag:{naam:o.naam}, focus:f, meting:m});
+    }
+    return uit.length ? uit : null;
+  },
+
+  /* Alle opties voor vandaag: het bankdrukplan als er een focusoefening is,
+     anders het oude voorstel op spiergroepen. */
+  opties(){
+    const plan=this.bankplan();
+    if(plan) return plan;
+    return this.alle().map(v=>({soort:"groep", naam:v.dag.naam, waarom:"", opdracht:"",
+      groepen:v.groepen, oefeningen:v.oefeningen, dag:v.dag, meting:v.meting}));
+  },
+
+  /* Je doel in beeld, maar alleen met een getal dat je écht getild hebt: je
+     zwaarste set ooit tegen het doel dat je zelf invulde bij de oefening.
+     Geen geschat 1RM — dat is een formule, geen prestatie, en hij wil het niet
+     zien. Staat er geen doel, dan staat er ook geen balk.                   */
+  doelBalk(f){
+    const d=(f.ex&&f.ex.doel)||{};
+    if(!(d.max1rm>0)) return "";
+    const zw=zwaarsteOoit(f.id); if(!zw) return "";
+    const pct=clamp(zw.w/d.max1rm*100,0,100);
+    const rest=Math.round((d.max1rm-zw.w)*10)/10;
+    return `<div style="padding:12px 14px 0">
+      <div style="display:flex;align-items:baseline;gap:7px;margin-bottom:6px">
+        <b class="num" style="font-size:15px">${nf(zw.w)}</b>
+        <span style="font-size:12.5px;color:var(--ink-3)">van ${nf(d.max1rm)} kg ${esc(f.ex.name.toLowerCase())}</span>
+        <span style="flex:1"></span>
+        <span class="num" style="font-size:12.5px;color:var(--accent);font-weight:650">${rest>0?"nog "+nf(rest)+" kg":"gehaald"}</span>
+      </div>
+      <div style="height:7px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+        <i style="display:block;height:100%;width:${pct}%;background:var(--accent);border-radius:99px"></i></div>
+    </div>`;
+  },
+
   /* De kaart op het startscherm */
   kaart(){
-    const opties=this.alle();
+    const opties=this.opties();
     // Zoveel weggedrukt dat er geen voorstel meer overblijft? Dat is geen
     // rustdag — zeg dan gewoon dat de lijst op is.
     if(!opties.length && this.weggedrukt().length) return `
@@ -1893,22 +2150,28 @@ const Advies={
     const i=this.index(opties);
     const v=opties[i];
     const m=v.meting;
-    const reden=v.groepen.map(g=>{
+    // Zonder focusoefening valt hij terug op het oude verhaal: welke
+    // spiergroepen achterlopen. Mét focus staat de reden al klaar.
+    const reden = v.waarom || v.groepen.map(g=>{
       const u=m[g];
       if(u.dagen>=999) return `<b>${g}</b> heb je in geen vier weken getraind`;
       if(u.tekort>=u.streef*0.5) return `<b>${g}</b> kreeg ${u.perWeek} sets per week, je streeft naar ${u.streef}`;
       return `<b>${g}</b> is ${u.dagen} dagen geleden geweest`;
-    }).slice(0,2).join(" en ");
+    }).slice(0,2).join(" en ")+".";
     return `
       <div class="card">
         <div class="card-head"><div class="card-title">Voorstel voor vandaag</div>
-          ${opties.length>1?`<span class="chip">${i+1} van ${opties.length}</span>`:`<span class="chip acc">${esc(v.dag.naam)}</span>`}</div>
+          <span class="chip acc">${esc(v.naam||v.dag.naam)}</span></div>
+        ${v.focus?this.doelBalk(v.focus):""}
         ${opties.length>1?`<div style="padding:12px 14px 0">
           <div class="seg">${opties.map((o,k)=>
-            `<button type="button" class="${k===i?"on":""}" onclick="Advies.kies(${k})">${esc(o.dag.naam)}</button>`).join("")}</div>
+            `<button type="button" class="${k===i?"on":""}" onclick="Advies.kies(${k})">${esc(o.naam||o.dag.naam)}</button>`).join("")}</div>
         </div>`:""}
         <div style="padding:13px 14px 4px">
-          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${reden}.</p>
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${reden}</p>
+          ${v.opdracht?`<p style="font-size:14.5px;line-height:1.55;color:var(--ink);
+            margin-top:9px;padding:10px 12px;background:var(--accent-soft);border-radius:10px">
+            ${v.opdracht}</p>`:""}
         </div>
         <div style="padding:6px 14px 12px;display:flex;flex-direction:column;gap:7px">
           ${v.oefeningen.map(o=>{
@@ -1937,8 +2200,11 @@ const Advies={
 
   start(){
     const v=this.voorstel(); if(!v) return;
+    // De taak gaat mee op de sessie, zodat de volgende keer bekend is of dit
+    // een zware of een volumedag was. Zonder dat moet de app het raden uit je
+    // herhalingen, en dan komt er altijd "zwaar" uit.
     DB.d.active={id:uid(),date:today(),start:Date.now(),end:null,
-      name:v.dag.naam,routineId:null,notes:"",
+      name:v.naam||v.dag.naam, taak:v.soort||null, routineId:null,notes:"",
       entries:v.oefeningen.map(o=>({exId:o.id,note:"",rest:null,
         sets:Array.from({length:3},()=>({w:o.w||null,r:o.r||null,rpe:null,t:"work",done:false}))}))};
     DB.save(); render();
@@ -4954,7 +5220,12 @@ const Meer={
           <input class="ctrl num" id="eStap" inputmode="decimal" value="${nf(d.stap)}"></div>
       </div>
       <p class="mut">${d.afgeleid?"Afgeleid uit wat je met deze oefening meestal doet — pas gerust aan.":"Zelf ingesteld."}
-        Hier komt het gewichtsvoorstel uit dat je tijdens een workout boven je sets ziet.</p>`; })()}
+        Hier komt het gewichtsvoorstel uit dat je tijdens een workout boven je sets ziet.</p>
+      <div class="field"><label>Doel: zwaarste set ooit (kg)</label>
+        <input class="ctrl num" id="eMax1" inputmode="decimal" placeholder="leeg laten mag"
+               value="${e.doel&&e.doel.max1rm?nf(e.doel.max1rm):""}"></div>
+      <p class="mut">Vul je hier iets in, dan staat er bij je trainingsvoorstel een balk met hoe ver
+        je bent. Die vergelijkt met het zwaarste dat je écht getild hebt, niet met een schatting.</p>`; })()}
       <div class="switch"><div class="sw-main"><b>Niet voorstellen</b>
         <span>De app laat deze oefening weg uit het trainingsvoorstel. Je kunt hem zelf altijd nog kiezen.</span></div>
         <button class="toggle ${e.nietVoorstellen?"on":""}" type="button" onclick="Meer.togVoorstel('${id}',this)"><i></i></button></div>
@@ -4973,11 +5244,13 @@ const Meer={
       const v=parseFloat(String(el.value).replace(",",".")); return isNaN(v)?t:v; };
     const oud=doelVan(e);
     const min=clamp(Math.round(g("#eMin",oud.min)),1,50);
+    const m1=g("#eMax1",0);
     e.doel={
       sets: clamp(Math.round(g("#eSets",oud.sets)),1,10),
       min,
       max:  clamp(Math.round(g("#eMax",oud.max)),min,60),
-      stap: clamp(g("#eStap",oud.stap),0.5,25)
+      stap: clamp(g("#eStap",oud.stap),0.5,25),
+      max1rm: m1>0 ? clamp(m1,1,500) : null
     };
     DB.save(); Sheet.close(); toast("Opgeslagen"); render();
   },
