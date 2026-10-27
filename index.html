@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 15:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 16:25";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -5034,7 +5034,14 @@ const Meer={
     return naam.toLowerCase()
       .replace(/'/g," ").replace(/[^a-z0-9 ]/g," ")
       .replace(/\b(the|met|op|a|an)\b/g," ")
-      .replace(/\b(barbell|bb|dumbbell|db|machine|cable|kabel|rope|v|bar|smith|seated|standing|single|one|arm|armed|wide|close|grip|neutral)\b/g," ")
+      // "backrow", "back row" en "row" zijn bij hem allemaal hetzelfde: zijn
+      // rijen staan onder vijf verschillende namen in het logboek.
+      .replace(/\bback\s*row/g,"row")
+      // Materiaal en houding zeggen niets over wélke beweging het is.
+      // Let op: wide, close, neutral en reverse staan hier bewust NIET bij.
+      // Die stonden er eerst wel, en dan belandt een close grip row op dezelfde
+      // hoop als een wide grip row — twee oefeningen die echt verschillen.
+      .replace(/\b(barbell|bb|dumbbell|dumbell|db|machine|cable|kabel|rope|v|bar|smith|seated|standing|single|one|arm|armed|grip)\b/g," ")
       .replace(/s\b/g,"")                       // meervoud en enkelvoud gelijktrekken
       .replace(/\s+/g," ").trim();
   },
