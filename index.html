@@ -396,9 +396,9 @@ canvas{display:block;width:100%;height:100%}
    terug. Alleen tijdens een workout — in het logboek zou dat te makkelijk mis
    kunnen gaan. */
 .setrow{touch-action:pan-y}
-.setrow.vegen{transition:none;position:relative;z-index:1}
-.setrow.terug{transition:transform .18s ease-out}
-.setrow.weg{background:var(--bad-soft)}
+.setrow.vegen,.li.vegen{transition:none;position:relative;z-index:1}
+.setrow.terug,.li.terug{transition:transform .18s ease-out}
+.setrow.weg,.li.weg{background:var(--bad-soft)}
 .veeghint{padding:2px 13px 9px;font-size:11.5px;color:var(--ink-3)}
 
 /* Hoeveel herhalingen zaten er nog in? Verschijnt onder de set die je net
@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 16:25";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="27 okt 2026 - 17:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1351,24 +1351,45 @@ function renderTabs(){
 
    Het gebaar neemt het pas over als je duidelijk horizontaal beweegt. Anders
    zou je bij elke scrollbeweging of bij het aantikken van een invoerveld per
-   ongeluk een set kwijtraken. Alleen rijen mét `data-ex` doen mee — dat zijn
-   de rijen van de workout die nu loopt, niet die in je logboek.            */
+   ongeluk een set kwijtraken.
+
+   Twee soorten rijen doen mee. `.setrow[data-ex]` zijn de sets van de workout
+   die nu loopt (niet die in je logboek). `.li[data-oef]` zijn de oefeningen in
+   je bibliotheek onder Meer. Die laatste is een knop, dus na een veeg moeten
+   we de klik tegenhouden — anders opent het bewerkscherm alsnog.           */
 (function(){
   const DREMPEL=96;                      // zoveel pixels moet je halen
-  let rij=null, x0=0, y0=0, dx=0, horizontaal=false, beslist=false;
+  let rij=null, soort="", x0=0, y0=0, dx=0, horizontaal=false, beslist=false;
+  let blokTot=0;                         // klikken negeren tot dit moment
 
   const schoon=()=>{
     if(rij){ rij.style.transform=""; rij.style.opacity=""; rij.classList.remove("vegen","weg"); }
-    rij=null; dx=0; horizontaal=false; beslist=false;
+    rij=null; soort=""; dx=0; horizontaal=false; beslist=false;
   };
+
+  // Een veeg over een knop eindigt in een klik. Die slikken we op, in de
+  // capture-fase, zodat hij de onclick van de rij niet meer bereikt. Alleen
+  // klikken óp zo'n rij: eerst blokkeerde dit álles, en dan was de knop
+  // "Ongedaan maken" in de toast zeshonderd milliseconden dood — precies in
+  // het moment waarop je hem nodig hebt.
+  document.addEventListener("click",ev=>{
+    if(Date.now()>=blokTot) return;
+    const t=ev.target;
+    if(!t || !t.closest || !t.closest(".li[data-oef],.setrow[data-ex]")) return;
+    ev.stopPropagation(); ev.preventDefault();
+  },true);
 
   document.addEventListener("touchstart",ev=>{
     schoon();
-    if(!DB.d || !DB.d.active || page!=="train") return;
+    if(!DB.d) return;
     if(ev.touches.length!==1) return;
-    const r=ev.target.closest && ev.target.closest(".setrow[data-ex]");
+    const t=ev.target; if(!t || !t.closest) return;
+    let r=null;
+    if(DB.d.active && page==="train") r=t.closest(".setrow[data-ex]");
+    if(!r) r=t.closest(".li[data-oef]");
     if(!r) return;
-    rij=r; x0=ev.touches[0].clientX; y0=ev.touches[0].clientY;
+    rij=r; soort = r.dataset.oef ? "oef" : "set";
+    x0=ev.touches[0].clientX; y0=ev.touches[0].clientY;
     rij.classList.remove("terug");
   },{passive:true});
 
@@ -1381,6 +1402,7 @@ function renderTabs(){
       beslist=true;
       horizontaal = Math.abs(dx) > Math.abs(dy)*1.6;
       if(!horizontaal){ rij=null; return; }               // je scrolt: laat los
+      blokTot=Date.now()+600;                             // de klik erna niet doorlaten
       rij.classList.add("vegen");
       if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     }
@@ -1394,14 +1416,30 @@ function renderTabs(){
 
   document.addEventListener("touchend",()=>{
     if(!rij || !horizontaal) return schoon();
-    const r=rij, ver=Math.abs(dx)>=DREMPEL;
-    const i=+r.dataset.ex, j=+r.dataset.set;
+    const r=rij, ver=Math.abs(dx)>=DREMPEL, wat=soort;
+    const i=+r.dataset.ex, j=+r.dataset.set, oefId=r.dataset.oef;
     if(ver){
+      blokTot=Date.now()+600;
       r.style.transition="transform .15s ease-in,opacity .15s ease-in";
       r.style.transform=`translateX(${dx>0?"110%":"-110%"})`;
       r.style.opacity="0";
       rij=null;
-      setTimeout(()=>Train.weghalen(i,j),140);
+      setTimeout(()=>{
+        if(wat==="oef"){
+          Meer.oefWeghalen(oefId);
+          // De rij zit in een eigen .list-doosje; dat moet mee weg, anders
+          // blijft er een leeg randje staan.
+          const box=r.parentElement;
+          if(box && box.classList.contains("list") && box.children.length===1){
+            // Was dit de laatste oefening onder een spiergroepkopje, dan moet
+            // dat kopje ook weg — anders blijft "Kuiten" boven niets staan.
+            const kop=box.previousElementSibling, na=box.nextElementSibling;
+            box.remove();
+            if(kop && kop.classList.contains("sec-label") &&
+               (!na || na.classList.contains("sec-label"))) kop.remove();
+          } else r.remove();
+        } else Train.weghalen(i,j);
+      },140);
       schoon();
     } else {
       r.classList.add("terug"); r.classList.remove("weg");
@@ -5008,9 +5046,37 @@ const Meer={
         const kop = hg(e)!==cur ? (cur=hg(e), `<div class="sec-label">${cur}</div>`) : "";
         const h=historyFor(e.id);
         const extra=exGroepen(e).slice(1);
-        return kop+`<div class="list" style="margin-top:${kop?"0":"-13px"}"><button class="li" type="button" onclick="Meer.exEdit('${e.id}')">
+        return kop+`<div class="list" style="margin-top:${kop?"0":"-13px"}"><button class="li" type="button"
+          data-oef="${e.id}" onclick="Meer.exEdit('${e.id}')">
           <div class="li-main"><b>${esc(e.name)}</b><span>${extra.length?"+ "+esc(extra.join(", "))+" · ":""}${h.length?h.length+" sessies":"nog niet gebruikt"}</span></div><div class="chev"></div></button></div>`;
-      }).join("")}`);
+      }).join("")}
+      <p class="mut" style="margin-top:14px">Veeg een oefening opzij om hem uit deze lijst te halen.
+        Heb je hem ooit gelogd, dan blijven je sets gewoon bewaard — hij staat alleen niet meer in de weg.</p>`);
+  },
+
+  /* Een oefening uit de lijst vegen. Twee gevallen, en het verschil is niet
+     cosmetisch: aan een oefening die hij ooit heeft gelogd hangt geschiedenis.
+     Die archiveren we (precies wat de knop "Uit lijst halen" doet), zodat zijn
+     logboek, records en grafieken blijven kloppen. Een oefening die hij nooit
+     gebruikte mag echt weg. Allebei met ongedaan maken, want vegen gaat per
+     ongeluk.                                                                */
+  oefWeghalen(id){
+    const i=DB.d.exercises.findIndex(e=>e.id===id);
+    if(i<0) return;
+    const e=DB.d.exercises[i];
+    const naam=e.name;
+    const gebruikt=historyFor(id).length>0
+      || (DB.d.active && DB.d.active.entries.some(x=>x.exId===id));
+    if(gebruikt){
+      e.arch=true; DB.save();
+      toastActie(`${naam} uit je lijst — je sets blijven bewaard`,"Ongedaan maken",
+        ()=>{ const t=exById(id); if(t) t.arch=false; DB.save(); this.exList(); });
+    } else {
+      const kopie=DB.d.exercises.splice(i,1)[0];
+      DB.save();
+      toastActie(`${naam} verwijderd`,"Ongedaan maken",
+        ()=>{ DB.d.exercises.splice(i,0,kopie); DB.save(); this.exList(); });
+    }
   },
   /* ---- Dubbele oefeningen opruimen ---------------------------------------
      Twee soorten rommel in zijn lijst. Ten eerste standaardoefeningen uit de
