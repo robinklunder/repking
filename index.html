@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="27 okt 2026 - 17:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 12:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -950,15 +950,33 @@ function maxMoment(exId, exclSessionId){
 }
 
 /* Het voorstel zelf. Geeft null terug als er te weinig te vergelijken valt —
-   liever niets zeggen dan iets verzinnen. */
-function voorstelVoor(exId, exclSessionId){
+   liever niets zeggen dan iets verzinnen.
+
+   `taak` ("zwaar" of "volume") kijkt terug naar je vorige dag van diezelfde
+   soort. Zonder dat ging het mis: Robin deed 4 × 6 × 80 op een volumedag, en
+   voor de zware dag erna stelde de app 85 kg voor — terwijl hij een week
+   eerder 110 kg drukte. Je vergelijkt een zware dag met een zware dag.
+   En het doel hoort bij de taak: op een volumedag wil je 6–8 herhalingen,
+   niet de 3–5 die bij je zware dag staan.                                   */
+function voorstelVoor(exId, exclSessionId, taak){
   const ex=exById(exId); if(!ex || ex.type==="cardio") return null;
   const h=historyFor(exId,exclSessionId);
   if(!h.length) return null;
-  const vorige=h[h.length-1].sets.filter(s=>!s.sec);
+
+  let bron=h[h.length-1];
+  if(taak){
+    // de laatste keer dat je deze oefening met dezelfde taak deed
+    for(let i=h.length-1;i>=0;i--){
+      const s=DB.d.sessions.find(x=>x.id===h[i].sessionId);
+      if(s && taakVan(s,exId)===taak){ bron=h[i]; break; }
+    }
+  }
+  const vorige=bron.sets.filter(s=>!s.sec);
   if(!vorige.length) return null;
 
-  const doel=doelVan(ex), stap=doel.stap||stapVan(ex);
+  const basis=doelVan(ex), stap=basis.stap||stapVan(ex);
+  // Op een volumedag gelden andere herhalingen dan je ingestelde doel.
+  const doel = taak==="volume" ? {...basis, sets:Math.max(3,basis.sets), min:6, max:8} : basis;
   // het gewicht waar je vorige keer je werk deed: dat wat het vaakst voorkwam,
   // bij gelijkspel het zwaarste
   const tel={};
@@ -1036,6 +1054,14 @@ function focusOefening(){
    af uit de mediaan van je werksets — met de kanttekening dat daar bij Robin
    twaalf van de twaalf keer "zwaar" uit komt. Hij hééft geen volumedagen; dat
    is precies het gat dat dit voorstel moet vullen.                          */
+/* Alleen "zwaar" en "volume" zeggen iets over hoe zwaar je die dag tilde; een
+   trekdag of benendag is geen belastingstaak. Bij die laatste vergelijken we
+   gewoon met je vorige keer. */
+function laadTaak(sessie){
+  const t=sessie && sessie.taak;
+  return (t==="zwaar" || t==="volume") ? t : null;
+}
+
 function taakVan(sessie, exId){
   if(sessie && sessie.taak) return sessie.taak;
   const e=((sessie&&sessie.entries)||[]).find(x=>x.exId===exId);
@@ -2050,7 +2076,8 @@ const Advies={
     const naam=f.ex.name;
     const doel=doelVan(f.ex);
     const volKg=volumeGewicht(f.id);
-    const vs=voorstelVoor(f.id);
+    const vsZwaar=voorstelVoor(f.id,null,"zwaar");    // tegen je vorige zware dag
+    const vsVolume=voorstelVoor(f.id,null,"volume");  // tegen je vorige volumedag
 
     /* Elke regel levert een optie op. `focus` betekent: zet de focusoefening
        bovenaan de oefeningenlijst. `prio` bepaalt de volgorde.              */
@@ -2070,13 +2097,14 @@ const Advies={
     const zwaarDag={soort:"zwaar", naam:"Zware dag",
       groepen:["Borst","Triceps","Schouders"], verdeling:[2,1,1], focus:true,
       waarom:`Dit is de sessie waar je maximum van omhoog gaat: weinig herhalingen, veel gewicht. Je laatste ${esc(naam.toLowerCase())} was ${dagen===1?"gisteren":dagen+" dagen geleden"}.`,
-      opdracht: vs ? `${doel.sets} sets van ${doel.min}–${doel.max} op ${nf(vs.kg)} kg. ${vs.reden}`
-                   : `${doel.sets} sets van ${doel.min}–${doel.max} herhalingen.`};
+      opdracht: vsZwaar ? `${doel.sets} sets van ${doel.min}–${doel.max} op ${nf(vsZwaar.kg)} kg. ${vsZwaar.reden}`
+                        : `${doel.sets} sets van ${doel.min}–${doel.max} herhalingen.`};
     const volumeDag={soort:"volume", naam:"Volumedag",
       groepen:["Borst","Triceps","Schouders"], verdeling:[2,1,1], focus:true,
       waarom:`Zware sets maken je sterker, maar het weefsel dat die kracht moet dragen bouw je met herhalingen. Jij draait ${esc(naam.toLowerCase())} vrijwel altijd zwaar — dit is het stuk dat ontbreekt.`,
-      opdracht: volKg ? `3 tot 4 sets van 6–8 op ongeveer ${nf(volKg)} kg. Dat is bewust lichter: het doel is nette herhalingen, niet afzien.`
-                      : `3 tot 4 sets van 6–8 herhalingen, ongeveer een achtste lichter dan je zware dag.`};
+      opdracht: vsVolume ? `${Math.max(3,doel.sets)} sets van 6–8 op ${nf(vsVolume.kg)} kg. ${vsVolume.reden}`
+              : volKg    ? `3 tot 4 sets van 6–8 op ongeveer ${nf(volKg)} kg. Dat is bewust lichter: het doel is nette herhalingen, niet afzien.`
+                         : `3 tot 4 sets van 6–8 herhalingen, ongeveer een achtste lichter dan je zware dag.`};
     const trekDag={soort:"trek", naam:"Trekdag", groepen:["Rug","Biceps"], verdeling:[3,1], focus:false,
       waarom: duw ? `Je rug kreeg de laatste twee weken ${trek} sets tegen ${duw} voor je duwwerk — ${trekPct}%. De bovenrug is het platform waar je vanaf drukt: hoe steviger je schouderbladen vastliggen, hoe korter de baan van de stang.`
                   : `Je hebt de laatste twee weken geen trekwerk gelogd. De bovenrug is het platform waar je vanaf drukt.`,
@@ -2665,7 +2693,7 @@ const Train={
      afvinken, dan verdwijnt hij — dan weet je het al. */
   voorstelBalk(e,i,a){
     if(e.sets.some(s=>s.done)) return "";
-    const v=voorstelVoor(e.exId,a.id);
+    const v=voorstelVoor(e.exId,a.id,laadTaak(a));
     const mx=maxMoment(e.exId,a.id);
     if(!v && !mx) return "";
     const d=v?v.doel:null;
@@ -2678,7 +2706,7 @@ const Train={
   },
   voorstelUitleg(i){
     const e=DB.d.active.entries[i];
-    const v=voorstelVoor(e.exId,DB.d.active.id);
+    const v=voorstelVoor(e.exId,DB.d.active.id,laadTaak(DB.d.active));
     if(!v) return;
     const d=v.doel;
     Sheet.open(exName(e.exId),`

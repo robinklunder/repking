@@ -1,16 +1,16 @@
-/* Rep King ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â offline werken in de sportschool.
+/* Rep King — offline werken in de sportschool.
 
    Aanpak: eerst het netwerk proberen, en wat binnenkomt bewaren. Lukt dat niet
    (geen bereik in de kelder), dan pakken we de bewaarde versie. Zo heb je altijd
    de nieuwste app als er verbinding is, en werkt hij toch als die er niet is.
 
-   Je gelogde trainingen staan hier los van ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â die zitten in de opslag van je
+   Je gelogde trainingen staan hier los van — die zitten in de opslag van je
    browser en worden hier nooit aangeraakt.                                    */
 
 /* Verhoog dit nummer bij elke uitgave: alles wat onder een oudere naam bewaard
    is, wordt bij het activeren weggegooid. Zo blijft er nooit een oude versie
    op een telefoon hangen. */
-const CACHE = "repking-v34";
+const CACHE = "repking-v35";
 const BESTANDEN = [
   "./",
   "./index.html",
@@ -42,8 +42,8 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   if (new URL(req.url).origin !== location.origin) return;
 
-  // Bij het openen van de app de pagina altijd ÃƒÆ’Ã‚Â©cht van het netwerk halen,
-  // niet uit de tussenopslag van de browser ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â anders zie je een oude versie.
+  // Bij het openen van de app de pagina altijd écht van het netwerk halen,
+  // niet uit de tussenopslag van de browser — anders zie je een oude versie.
   const vers = req.mode === "navigate" || req.url.endsWith("index.html")
              ? new Request(req, {cache: "reload"}) : req;
 
