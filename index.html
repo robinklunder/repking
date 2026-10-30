@@ -38,6 +38,35 @@
   --safe-b:env(safe-area-inset-bottom,0px);
   --safe-t:env(safe-area-inset-top,0px);
 }
+/* ---- Openingsscherm ---------------------------------------
+   De letters zijn zo zwaar mogelijk gezet met wat op een iPhone
+   beschikbaar is; Arial Black staat er niet op, dus we vragen om
+   het zwaarste gewicht dat het systeemlettertype kan.          */
+#splash{
+  position:fixed; inset:0; z-index:300; background:var(--ground);
+  display:grid; place-items:center; text-align:center;
+  transition:opacity .45s ease; padding:0 24px;
+}
+#splash.weg{opacity:0; pointer-events:none}
+.sp-mark{
+  font-family:"Arial Black","Helvetica Neue",Helvetica,Arial,sans-serif;
+  font-weight:900; font-size:78px; line-height:1; letter-spacing:-.02em;
+  color:#FFFFFF;
+}
+.sp-bar{
+  height:12px; background:var(--accent); border-radius:2px;
+  margin:9px auto 0; width:118px;
+}
+.sp-naam{
+  margin-top:30px; font-size:19px; font-weight:800; letter-spacing:.1em; color:var(--ink);
+}
+.sp-slogan{
+  margin-top:9px; font-size:12px; font-weight:700; letter-spacing:.26em; color:var(--accent);
+}
+.sp-sub{
+  margin-top:7px; font-size:10px; letter-spacing:.2em; color:var(--ink-3);
+}
+
 /* ============================================================
    BASIS
    ============================================================ */
@@ -436,6 +465,19 @@ canvas{display:block;width:100%;height:100%}
 
 <div class="toast" id="toast"></div>
 
+<!-- Openingsscherm. Staat bewust in de HTML en niet in JavaScript: zo staat hij
+     er al voordat er ook maar iets is uitgevoerd. Hij verdwijnt na anderhalve
+     seconde, bij een tik meteen, en helemaal niet als er een workout loopt. -->
+<div id="splash">
+  <div class="sp-in">
+    <div class="sp-mark">RK</div>
+    <div class="sp-bar"></div>
+    <div class="sp-naam">REP KING FORGED</div>
+    <div class="sp-slogan">REFORGE YOURSELF.</div>
+    <div class="sp-sub">ADAPTIVE STRENGTH TRAINING</div>
+  </div>
+</div>
+
 <script>
 "use strict";
 /* ============================================================================
@@ -489,7 +531,7 @@ function isWork(s){ return s.done && s.t!=="warmup"; }
    vergelijken: een circuit van 25 minuten met kettlebells is niet "lichter"
    dan een uur bankdrukken, het is iets anders. */
 function soortVan(s){ return (s && s.soort==="body") ? "body" : "gym"; }
-const SOORTNAAM={gym:"Gym", body:"Body"};
+const SOORTNAAM={gym:"Gymworkout", body:"Bodyworkout"};
 const SOORTWOORD={gym:"gymworkouts", body:"bodyworkouts"};
 
 /* ---------- 2. Oefeningenbibliotheek ----------------------------------- */
@@ -556,7 +598,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 15:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 16:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1090,6 +1132,158 @@ function werkGewicht(exId){
   return w||null;
 }
 
+/* ---- Mijlpalen -------------------------------------------------------------
+   Geen punten, geen niveaus, geen streak die je kwijtraakt. En bewust niets
+   dat je verdient door vaker te trainen dan goed voor je is: er is geen
+   mijlpaal voor zeven dagen achter elkaar. Elke mijlpaal beloont iets dat je
+   doel dient, en elke nog niet behaalde zegt in je eigen cijfers wat eraan
+   ontbreekt.
+
+   Alles wordt elke keer opnieuw uitgerekend uit je logboek, net als de tips.
+   Het enige dat we bewaren is wélke je al een keer te zien kreeg, zodat er
+   precies één keer eentje opduikt na een training.                          */
+function mijlpaalGezien(){
+  const s=S();
+  if(!s.mijlpalen || !Array.isArray(s.mijlpalen.gezien)) s.mijlpalen={gezien:[]};
+  return s.mijlpalen.gezien;
+}
+
+function mijlpalen(extra){
+  const f=focusOefening(); if(!f) return null;
+  const ex=f.ex, doel=doelVan(ex);
+  const stap=(doel.stap||stapVan(ex))*2;
+  const sessies = extra ? DB.d.sessions.concat([extra]) : DB.d.sessions;
+  const WEEK=6048e5, nu=Date.now();
+
+  /* Eerste doorloop: wat is het zwaarste dat je ooit tilde? Dat getal is de
+     maat voor "zwaar" in de tweede doorloop, dus het moet eerst klaar zijn. */
+  let topKg=0, topDatum="", werkDatum="", werkKg=0;
+  const focusVan=s=>{
+    for(const e of s.entries||[]){
+      if(e.exId!==f.id) continue;
+      const w=e.sets.filter(y=>isWork(y)&&!y.sec);
+      if(w.length) return w;
+    }
+    return null;
+  };
+  for(const s of sessies){
+    const w=focusVan(s); if(!w) continue;
+    for(const st of w) if((st.w||0)>topKg){ topKg=st.w; topDatum=s.date; }
+  }
+  const doelKg = (ex.doel && ex.doel.max1rm>0) ? ex.doel.max1rm : 0;
+  const eersteTrede = doelKg ? doelKg - 8*stap : 0;
+  const drempel = topKg*0.85;
+
+  const W=[];
+  const vak=i=>{ while(W.length<=i) W.push({duw:0,trek:0,dagen:0,zwaar:0,volume:0,rirDagen:0,zware:0,iets:false}); return W[i]; };
+  for(const s of sessies){
+    const i=Math.floor((nu-dParse(s.date).getTime())/WEEK);
+    if(i<0 || i>15) {
+      // buiten het venster, maar wel meetellen voor "ooit behaald"
+      const w=focusVan(s);
+      if(w) for(const st of w) if(st.r>=3 && eersteTrede && st.w>=eersteTrede && (!werkDatum || s.date<werkDatum)){ werkDatum=s.date; werkKg=st.w; }
+      continue;
+    }
+    const v=vak(i); v.iets=true;
+    for(const e of s.entries||[]){
+      const x=exById(e.exId); if(!x || x.type==="cardio") continue;
+      const w=e.sets.filter(y=>isWork(y)&&!y.sec); if(!w.length) continue;
+      const g=exGroepen(x);
+      if(g.some(y=>y==="Borst"||y==="Schouders"||y==="Triceps")) v.duw+=w.length;
+      if(g.some(y=>y==="Rug"||y==="Biceps")) v.trek+=w.length;
+    }
+    const w=focusVan(s);
+    if(w){
+      v.dagen++;
+      const reps=w.map(x=>x.r||0).sort((a,b)=>a-b);
+      const med=reps[Math.floor(reps.length/2)];
+      const taak = (s.taak==="zwaar"||s.taak==="volume") ? s.taak : (med<=5?"zwaar":"volume");
+      if(taak==="zwaar") v.zwaar++; else v.volume++;
+      if(w.some(x=>x.rir!==null && x.rir!==undefined)) v.rirDagen++;
+      v.zware += w.filter(x=>x.w>=drempel && x.r<=6).length;
+      for(const st of w) if(st.r>=3 && eersteTrede && st.w>=eersteTrede && (!werkDatum || s.date<werkDatum)){ werkDatum=s.date; werkKg=st.w; }
+    }
+  }
+
+  /* Reeksen tellen we over vólle weken; de lopende week doet niet mee, die is
+     nog niet af. Een week waarin je niets logde breekt de reeks. */
+  const reeks=(test)=>{
+    let beste=0, lopend=0;
+    for(let i=1;i<W.length;i++){
+      if(!W[i].iets){ lopend=0; continue; }
+      if(test(W[i])){ lopend++; if(lopend>beste) beste=lopend; } else lopend=0;
+    }
+    return beste;
+  };
+  const trekOk = v => v.duw>0 && v.trek/v.duw >= 0.5;
+  const nuTrek = W[0] && W[0].duw ? Math.round(W[0].trek/W[0].duw*100) : 0;
+  const platform = reeks(trekOk);
+  const programma = reeks(v=>v.dagen>=2 && v.dagen<=3);
+  const rirReeks = reeks(v=>v.dagen>0 && v.rirDagen===v.dagen);
+  const tweeTaken = W.some(v=>v.zwaar>=1 && v.volume>=1);
+
+  // Teruggeschakeld: een volle week met minder dan de helft van je gewone
+  // zware sets, direct na een week die daar juist boven zat.
+  const gem = W.slice(0,8).reduce((a,v)=>a+v.zware,0)/Math.max(1,Math.min(8,W.length));
+  let terug=false;
+  for(let i=1;i<W.length-1;i++)
+    if(W[i].iets && gem>=3 && W[i].zware < gem*0.5 && W[i+1].zware >= gem) terug=true;
+
+  const lijst=[
+    {id:"werkgewicht", naam:"Werkgewicht op de eerste trede",
+     wat:`3 of meer herhalingen op ${nf(eersteTrede)} kg`,
+     behaald:!!werkDatum, datum:werkDatum,
+     stand: werkDatum ? "" : `je zwaarste werkset staat nu lager`},
+    {id:"platform4", naam:"Platform",
+     wat:"4 volle weken op rij minstens 50% treksets",
+     behaald:platform>=4, datum:"",
+     stand: platform>=4 ? "" : `je beste reeks is ${platform} ${platform===1?"week":"weken"} — deze week sta je op ${nuTrek}%`},
+    {id:"fundament8", naam:"Fundament",
+     wat:"8 volle weken op rij minstens 50% treksets",
+     behaald:platform>=8, datum:"",
+     stand: platform>=8 ? "" : `je beste reeks is ${platform} ${platform===1?"week":"weken"}`},
+    {id:"tweetaken", naam:"Twee taken",
+     wat:`een zware én een volumedag ${esc(ex.name.toLowerCase())} in dezelfde week`,
+     behaald:tweeTaken, datum:"",
+     stand: tweeTaken ? "" : "je draait vrijwel alles zwaar"},
+    {id:"programma4", naam:"Vier weken programma",
+     wat:`4 volle weken op rij 2 of 3 keer ${esc(ex.name.toLowerCase())}`,
+     behaald:programma>=4, datum:"",
+     stand: programma>=4 ? "" : `je beste reeks is ${programma} ${programma===1?"week":"weken"}`},
+    {id:"rir4", naam:"In de tank",
+     wat:"4 volle weken op rij RIR ingevuld bij elke sessie",
+     behaald:rirReeks>=4, datum:"",
+     stand: rirReeks>=4 ? "" : `je beste reeks is ${rirReeks} ${rirReeks===1?"week":"weken"}`},
+    {id:"teruggeschakeld", naam:"Teruggeschakeld",
+     wat:"een week terugschakelen na een zware week",
+     behaald:terug, datum:"",
+     stand: terug ? "" : "nog geen rustige week na een zware"}
+  ];
+
+  const treden=[];
+  if(doelKg) for(let k=eersteTrede;k<=doelKg+0.001;k+=stap) treden.push(Math.round(k*10)/10);
+
+  return {focus:f, doelKg, treden, topKg, topDatum, lijst,
+          behaald:lijst.filter(m=>m.behaald), open:lijst.filter(m=>!m.behaald)};
+}
+
+/* Wat heb je net verdiend en nog niet gezien? */
+function nieuweMijlpalen(extra){
+  const m=mijlpalen(extra); if(!m) return [];
+  const g=mijlpaalGezien();
+  const nieuw=m.behaald.filter(x=>g.indexOf(x.id)<0);
+  // treden tellen ook mee, elk met hun eigen sleutel
+  for(const t of m.treden)
+    if(m.topKg>=t && g.indexOf("trede"+t)<0)
+      nieuw.push({id:"trede"+t, naam:`${nf(t)} kg`, wat:`een nieuwe trede op weg naar ${nf(m.doelKg)} kg`, behaald:true, datum:m.topDatum, stand:""});
+  return nieuw;
+}
+function mijlpalenGezienZetten(lijst){
+  const g=mijlpaalGezien();
+  for(const m of lijst) if(g.indexOf(m.id)<0) g.push(m.id);
+  DB.save();
+}
+
 /* Je zwaarste set ooit bij deze oefening — een getal dat je écht getild hebt,
    geen schatting. Daar meten we je doel-1RM tegen af.                       */
 function zwaarsteOoit(exId){
@@ -1352,7 +1546,7 @@ function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrol
 
 /* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
    alsof je nergens meer bent. */
-const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog", evaluatie:"prog"};
+const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog", evaluatie:"prog", mijlpalen:"prog"};
 function renderTabs(){
   const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
@@ -1482,6 +1676,7 @@ function render(){
   else if(page==="oefening")Prog.detail(V,pageArg);
   else if(page==="jaar")  Prog.jaar(V);
   else if(page==="evaluatie")Prog.evaluatie(V);
+  else if(page==="mijlpalen")Prog.mijlpalenScherm(V);
   // Kan de app niets bewaren? Dan hoort dat op élk scherm te staan, niet alleen op het eerste.
   if(!storageOK){
     const w=document.createElement("div");
@@ -2356,8 +2551,8 @@ const Train={
     let h="";
     // Twee soorten workouts: met gewichten in de gym, of met je eigen lichaam
     h+=`<div class="seg">
-      <button type="button" class="${this.soort==="gym"?"on":""}" onclick="Train.kiesSoort('gym')">Gym</button>
-      <button type="button" class="${this.soort==="body"?"on":""}" onclick="Train.kiesSoort('body')">Body</button>
+      <button type="button" class="${this.soort==="gym"?"on":""}" onclick="Train.kiesSoort('gym')">Gymworkout</button>
+      <button type="button" class="${this.soort==="body"?"on":""}" onclick="Train.kiesSoort('body')">Bodyworkout</button>
     </div>`;
 
     if(this.soort==="body"){
@@ -3070,6 +3265,20 @@ const Train={
           ${this.samenvatting(a).map(z=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${z}</p>`).join("")}
         </div>
       </div>
+      ${(()=>{
+        // Mijlpalen rekenen over je logboek, en deze training staat daar nog
+        // niet in — dus geven we hem mee. Markeren als gezien gebeurt pas bij
+        // opslaan, zodat een afgebroken afronding er geen opmaakt.
+        const nw=nieuweMijlpalen(a);
+        if(!nw.length) return "";
+        return `<div class="card pr-pop">
+          <div class="card-head"><div class="card-title">Mijlpaal</div>
+            <span class="chip acc">${nw.length>1?nw.length+" nieuw":"nieuw"}</span></div>
+          <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px">
+            ${nw.map(x=>`<p style="font-size:14.5px;line-height:1.5;color:var(--ink)">
+              <b>${esc(x.naam)}</b> — <span style="color:var(--ink-2)">${x.wat}</span></p>`).join("")}
+          </div></div>`;
+      })()}
       <div class="field"><label>Naam van deze workout</label>
         <input class="ctrl" id="fName" value="${esc(a.name)}"></div>
       <div class="field"><label>Notitie</label>
@@ -3204,6 +3413,9 @@ const Train={
 
     DB.d.sessions.push(a);
     if(a.routineId){ const r=DB.d.routines.find(x=>x.id===a.routineId); if(r) r.last=a.date; }
+    // Nu de training in je logboek staat, tellen de mijlpalen hem mee. Pas hier
+    // afvinken: een afronding die je afbreekt mag er geen opmaken.
+    mijlpalenGezienZetten(nieuweMijlpalen());
     DB.d.active=null; DB.save(); Sheet.close();
     clearInterval(this._iv); Klok.uit(); Interval.stop();
     toast("Workout opgeslagen"); go("log");
@@ -3359,7 +3571,7 @@ const Log={
           <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${zin}</p></div>
         <div style="padding:10px 14px 4px;display:flex;align-items:flex-end;gap:5px">${kolommen}</div>
         <div style="padding:2px 14px 13px">
-          <p class="mut" style="font-size:12px">Workouts per week. ${heeftBody?`Oranje is gym, groen is body. `:""}De week die nu loopt telt nog niet mee in de vergelijking.</p></div>
+          <p class="mut" style="font-size:12px">Workouts per week. ${heeftBody?`Turquoise is gym, groen is body. `:""}De week die nu loopt telt nog niet mee in de vergelijking.</p></div>
       </div>`;
   },
 
@@ -3408,7 +3620,7 @@ const Log={
     if(!s){ go("log"); return; }
     const st=sessionStats(s);
     const b=this.bewerk;
-    head(this.groepNaam(s),`${SOORTNAAM[soortVan(s)]}workout · ${dLong(s.date)}`,
+    head(this.groepNaam(s),`${SOORTNAAM[soortVan(s)]} · ${dLong(s.date)}`,
       `<div style="display:flex;gap:6px">
          <button class="btn sm ghost" type="button" onclick="go('log')">Terug</button>
          <button class="btn sm ${b?"primary":""}" type="button" onclick="Log.togBewerk()">${b?"Klaar":"Bewerk"}</button>
@@ -3563,6 +3775,56 @@ const Log={
    VOORTGANG
    ============================================================================ */
 const Prog={
+  /* Mijlpalen: de ladder naar je doel, dan wat je hebt, dan wat er nog ligt.
+     Bij wat nog niet behaald is staat altijd hoe ver je bent — een gesloten
+     slotje zonder getal zegt je niets. */
+  mijlpalenScherm(V){
+    const m=mijlpalen();
+    if(!m){ head("Mijlpalen","",`<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
+      V.innerHTML=`<div class="card"><div class="empty"><p>Nog te weinig gelogd. Zodra je een oefening
+        twaalf weken lang regelmatig zwaar doet, verschijnen hier je mijlpalen.</p></div></div>`; return; }
+    const tredenGehaald=m.treden.filter(t=>m.topKg>=t).length;
+    const totaal=m.behaald.length+tredenGehaald;
+    head("Mijlpalen",`${totaal} behaald · ${m.open.length} te gaan`,
+      `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
+
+    const volgende=m.treden.filter(t=>m.topKg<t)[0];
+    V.innerHTML=`
+      ${m.doelKg?`<div class="card">
+        <div class="card-head"><div class="card-title">De weg naar ${nf(m.doelKg)} kg</div>
+          <span class="chip acc">${nf(m.topKg)} kg</span></div>
+        <div style="padding:12px 14px 4px;display:flex;flex-wrap:wrap;gap:7px">
+          ${m.treden.map(t=>{
+            const g=m.topKg>=t;
+            return `<span class="chip ${g?"acc":""}"${t===volgende?` style="border:1.5px solid var(--accent)"`:""}>${nf(t)}</span>`;
+          }).join("")}
+        </div>
+        <div style="padding:8px 14px 13px"><p class="mut" style="font-size:12.5px">
+          ${esc(m.focus.ex.name)} · je zwaarste gelogde set zet de markering.
+          ${volgende?`Volgende trede: <b>${nf(volgende)} kg</b>, nog ${nf(Math.round((volgende-m.topKg)*10)/10)} kg.`
+                    :`Je hebt de hele ladder gehad.`}</p></div>
+      </div>`:`<div class="notebox">Vul bij ${esc(m.focus.ex.name)} een doelgewicht in
+        (Meer → Oefeningen) en hier verschijnt je ladder ernaartoe.</div>`}
+
+      ${totaal?`<div class="sec-label">Behaald</div><div class="list">
+        ${m.treden.filter(t=>m.topKg>=t).map(t=>`<div class="li">
+          <div class="li-main"><b>${nf(t)} kg</b><span>een trede op weg naar ${nf(m.doelKg)} kg</span></div>
+          <span class="chip acc">✓</span></div>`).join("")}
+        ${m.behaald.map(x=>`<div class="li">
+          <div class="li-main"><b>${esc(x.naam)}</b><span>${x.wat}${x.datum?` · ${dLong(x.datum)}`:""}</span></div>
+          <span class="chip acc">✓</span></div>`).join("")}
+      </div>`:""}
+
+      ${m.open.length?`<div class="sec-label">Nog te halen</div><div class="list">
+        ${m.open.map(x=>`<div class="li">
+          <div class="li-main"><b style="color:var(--ink-2)">${esc(x.naam)}</b>
+            <span>${x.wat}${x.stand?` — ${x.stand}`:""}</span></div></div>`).join("")}
+      </div>`:""}
+
+      <p class="mut" style="margin-top:14px">Alles hierboven wordt elke keer opnieuw uit je logboek
+        gerekend. Er staat bewust niets tussen dat je verdient door vaker te trainen dan goed voor je is.</p>`;
+  },
+
   render(V){
     const ss=allSessions();
     head("Voortgang", ss.length?"Records, volume en trends":"");
@@ -3605,6 +3867,7 @@ const Prog={
         <button class="btn wide" type="button" onclick="go('evaluatie')">Evaluatie</button>
         ${ss.length>=20?`<button class="btn wide" type="button" onclick="go('jaar')">Jaaroverzicht</button>`:""}
       </div>`:""}
+      ${mijlpalen()?`<button class="btn wide" type="button" onclick="go('mijlpalen')">Mijlpalen</button>`:""}
 
       <div class="card">
         <div class="card-head"><div class="card-title">Werksets per week</div></div>
@@ -6137,6 +6400,17 @@ async function pasUpdateToe(){
 }
 
 DB.boot();
+
+/* Het openingsscherm weghalen. Moet ná DB.boot(), want pas dan weten we of er
+   nog een workout loopt — en in dat geval slaan we hem helemaal over. Dat is
+   precies het moment waarop je geen logo wilt zien maar je sets. */
+(function(){
+  const sp=$("#splash"); if(!sp) return;
+  const weg=()=>{ sp.classList.add("weg"); setTimeout(()=>sp.remove(),500); };
+  if(DB.d && DB.d.active){ sp.remove(); return; }
+  sp.addEventListener("click",weg,{once:true});
+  setTimeout(weg,1500);
+})();
 if(!DB.d.sessions.length && !DB.d.weights.length) laadStartdata();
 render();
 if(DB.d.active) toast("Je training liep nog — ga verder waar je gebleven was");

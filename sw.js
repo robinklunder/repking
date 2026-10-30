@@ -10,7 +10,7 @@
 /* Verhoog dit nummer bij elke uitgave: alles wat onder een oudere naam bewaard
    is, wordt bij het activeren weggegooid. Zo blijft er nooit een oude versie
    op een telefoon hangen. */
-const CACHE = "repking-v40";
+const CACHE = "repking-v41";
 const BESTANDEN = [
   "./",
   "./index.html",
