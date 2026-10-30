@@ -191,6 +191,9 @@ main > *{flex:0 0 auto}
 .setgrid.head{padding-top:8px;padding-bottom:4px}
 .setgrid.head span{font-size:10px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);text-align:center}
 .setgrid.head span:first-child{text-align:left}
+/* In het logboek staat achter Kg niets meer: daar stond een geschat 1RM, en
+   dat getal wilde hij nergens zien. Drie kolommen dus, geen lege vierde. */
+.setgrid.drie{grid-template-columns:30px minmax(0,1fr) minmax(0,1fr)}
 .setrow{border-bottom:1px solid var(--line)}
 .setrow:last-of-type{border-bottom:0}
 .setrow.done{background:var(--surface-2)}
@@ -598,7 +601,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 17:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 17:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -3655,13 +3658,13 @@ const Log={
             <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>${e.note?`<span class="prev-hint">${esc(e.note)}</span>`:""}</div></div>
             <button class="ex-more" type="button" onclick="${b?`Log.exMenu('${s.id}',${i})`:`go('oefening','${e.exId}')`}"
               aria-label="${b?"Opties":"Voortgang"}">${b?"⋯":"→"}</button></div>
-          <div class="setgrid head"><span>${body?"Ronde":"Set"}</span>
-            <span>${e.sets.length&&e.sets.every(x=>x.sec)?"Sec":"Reps"}</span><span>Kg</span><span></span></div>
+          <div class="setgrid head drie"><span>${body?"Ronde":"Set"}</span>
+            <span>${e.sets.length&&e.sets.every(x=>x.sec)?"Sec":"Reps"}</span><span>Kg</span></div>
           ${e.sets.map((x,j)=>{
             const nr=e.sets.slice(0,j+1).filter(y=>y.t!=="warmup").length;
             const kleur=x.t==="warmup"?"warmup":x.t==="drop"?"drop":x.t==="fail"?"fail":"";
             const label=x.t==="warmup"?"W":x.t==="drop"?"D":x.t==="fail"?"F":nr;
-            return `<div class="setgrid setrow">
+            return `<div class="setgrid setrow drie">
               ${b?`<button class="setno ${kleur}" type="button" onclick="Log.setMenu('${s.id}',${i},${j})">${label}</button>`
                  :`<span class="setno ${kleur}">${label}</span>`}
               ${b?`<input class="inp num" inputmode="numeric" value="${x.r??""}" aria-label="Herhalingen"
@@ -3670,7 +3673,6 @@ const Log={
               ${b?`<input class="inp num" inputmode="decimal" value="${x.w??""}" aria-label="Gewicht"
                      onchange="Log.zet('${s.id}',${i},${j},'w',this.value)">`
                  :`<span class="num" style="text-align:center;font-size:16px;font-weight:650">${x.bw?(x.w?"BW+"+nf(x.w):"BW"):(x.w!=null?nf(x.w):"–")}</span>`}
-              <span class="num" style="text-align:center;color:var(--ink-3);font-size:11.5px">${x.w&&x.r&&!x.sec?Math.round(e1rm(x.w,x.r)):""}</span>
             </div>`;
           }).join("")}
           ${b?`<div class="ex-foot">
