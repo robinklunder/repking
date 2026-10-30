@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 18:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 19:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1299,6 +1299,83 @@ function nieuweMijlpalen(extra){
       nieuw.push({id:"trede"+t, naam:`${nf(t)} kg`, wat:`een nieuwe trede op weg naar ${nf(m.doelKg)} kg`, behaald:true, datum:m.topDatum, stand:""});
   return nieuw;
 }
+/* ---- Weekterugblik ---------------------------------------------------------
+   Eén keer per week, bij je eerste opening van een nieuwe week, een korte
+   terugblik op maandag tot en met zondag. Geen cijferbrij: wat je deed, wat er
+   beter ging dan de week ervóór, en waar je het volgende week kunt pakken.
+
+   Trainde je die week niets, dan zeggen we niets. Een pop-up die je erop wijst
+   dat je niet getraind hebt helpt niemand, en jij hoeft niet te worden
+   aangespoord — je logt al een jaar.                                         */
+function maandagVan(d){
+  const x=new Date(d);
+  const dag=(x.getDay()+6)%7;              // maandag = 0
+  x.setDate(x.getDate()-dag); x.setHours(0,0,0,0);
+  return x;
+}
+/* Zelf opbouwen en niet via toISOString: die rekent in UTC en geeft hier in de
+   winter de dag ervóór. */
+function dStr(d){
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+
+function weekTerugblik(){
+  const maNu=maandagVan(new Date());
+  const maVorig=new Date(maNu); maVorig.setDate(maVorig.getDate()-7);
+  const zoVorig=new Date(maNu); zoVorig.setDate(zoVorig.getDate()-1);
+  const maDavoor=new Date(maVorig); maDavoor.setDate(maDavoor.getDate()-7);
+  const zoDavoor=new Date(maVorig); zoDavoor.setDate(zoDavoor.getDate()-1);
+  const van=dStr(maVorig), tot=dStr(zoVorig), vanD=dStr(maDavoor), totD=dStr(zoDavoor);
+
+  const leeg=()=>({workouts:0, sets:0, duw:0, trek:0, body:0});
+  const nu=leeg(), eerder=leeg();
+  let zwaarst=null;
+  const topVoor={}, topWeek={};
+
+  for(const s of DB.d.sessions){
+    const inNu = s.date>=van && s.date<=tot;
+    const inEerder = s.date>=vanD && s.date<=totD;
+    const vak = inNu ? nu : (inEerder ? eerder : null);
+    if(vak){ vak.workouts++; if(soortVan(s)==="body") vak.body++; }
+    for(const e of s.entries||[]){
+      const ex=exById(e.exId); if(!ex) continue;
+      const w=e.sets.filter(x=>isWork(x)&&!x.sec);
+      if(!w.length) continue;
+      if(vak && ex.type!=="cardio"){
+        vak.sets+=w.length;
+        const g=exGroepen(ex);
+        if(g.some(y=>y==="Borst"||y==="Schouders"||y==="Triceps")) vak.duw+=w.length;
+        if(g.some(y=>y==="Rug"||y==="Biceps")) vak.trek+=w.length;
+      }
+      const metKg=w.filter(x=>x.w>0);
+      if(!metKg.length) continue;
+      const top=Math.max(...metKg.map(x=>x.w));
+      if(s.date<van) topVoor[e.exId]=Math.max(topVoor[e.exId]||0, top);
+      else if(inNu){
+        topWeek[e.exId]=Math.max(topWeek[e.exId]||0, top);
+        for(const st of metKg)
+          if(!zwaarst || st.w>zwaarst.w) zwaarst={w:st.w, r:st.r, naam:ex.name};
+      }
+    }
+  }
+  if(!nu.workouts) return null;
+
+  const records=[];
+  for(const id in topWeek)
+    if(topWeek[id] > (topVoor[id]||0) && (topVoor[id]||0) > 0)
+      records.push({naam:exName(id), kg:topWeek[id], was:topVoor[id]});
+  records.sort((a,b)=>b.kg-a.kg);
+
+  return {van, tot, nu, eerder, zwaarst, records,
+          trekPct: nu.duw ? Math.round(nu.trek/nu.duw*100) : 0,
+          sleutel: dStr(maNu)};
+}
+
+function weekGezien(){
+  const s=S();
+  return s.weekGezien||"";
+}
+
 function mijlpalenGezienZetten(lijst){
   const g=mijlpaalGezien();
   for(const m of lijst) if(g.indexOf(m.id)<0) g.push(m.id);
@@ -3795,6 +3872,48 @@ const Log={
    VOORTGANG
    ============================================================================ */
 const Prog={
+  /* De terugblik op de afgelopen week. Motiverend betekent hier: waar staat
+     het goede nieuws dat ík uit zijn cijfers kan halen. Niet "goed bezig!",
+     maar wat er beter ging dan vorige week en wat hij nu neerzette. */
+  weekSheet(t){
+    const meer = t.nu.workouts - t.eerder.workouts;
+    const meerSets = t.nu.sets - t.eerder.sets;
+    const kop = t.records.length
+      ? (t.records.length>1 ? `${t.records.length} records` : `Een record`)
+      : meer>0 ? `Een week erbij` : `Je week`;
+
+    // De slotzin pakt het sterkste dat er in de cijfers zit.
+    let slot;
+    if(t.records.length)        slot = `Je tilde zwaarder dan je ooit deed. Dat is niet het gevolg van die ene week — dat is wat alle weken ervóór hebben opgebouwd.`;
+    else if(meer>0)             slot = `Je stond ${meer} keer vaker in de gym dan de week ervoor. Frequentie is saai en het werkt.`;
+    else if(meerSets>0)         slot = `Evenveel trainingen, maar ${meerSets} werksets meer. Je deed meer in dezelfde tijd.`;
+    else if(t.nu.workouts>=3)   slot = `${t.nu.workouts} trainingen in een week. Dat is het tempo waar je bankdruk van groeit.`;
+    else                        slot = `Een rustige week hoort er ook bij — zolang er weer een zware op volgt.`;
+
+    Sheet.open("Je week",`
+      <p class="mut">${dShort(t.van)} tot en met ${dShort(t.tot)}</p>
+      <div class="card">
+        <div class="card-head"><div class="card-title">${kop}</div>
+          <span class="chip acc">${t.nu.workouts} ${t.nu.workouts===1?"workout":"workouts"}</span></div>
+        <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:9px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Je deed <b class="num">${t.nu.sets}</b> werksets${t.eerder.workouts?`, tegen ${t.eerder.sets} de week ervoor`:""}.${t.nu.body?` Daarvan ${t.nu.body} ${t.nu.body===1?"bodyworkout":"bodyworkouts"}.`:""}</p>
+          ${t.zwaarst?`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Je zwaarste set was <b class="num">${setTekst(t.zwaarst.w,t.zwaarst.r,true)}</b> bij ${esc(t.zwaarst.naam)}.</p>`:""}
+          ${t.nu.duw?`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Trekken tegen duwen: <b class="num">${t.trekPct}%</b>${t.trekPct>=50?` — dat is waar je het wilt hebben.`:` — onder de 50 blijft dit je grootste gat.`}</p>`:""}
+        </div>
+      </div>
+      ${t.records.length?`<div class="sec-label">Zwaarder dan ooit</div><div class="list">
+        ${t.records.slice(0,4).map(r=>`<div class="li">
+          <div class="li-main"><b>${esc(r.naam)}</b><span>${nf(r.kg)} kg, was ${nf(r.was)} kg</span></div>
+          <span class="chip pr">PR</span></div>`).join("")}
+      </div>`:""}
+      <div class="notebox" style="margin-top:12px;font-size:14.5px;line-height:1.55">${slot}</div>
+      <button class="btn primary wide" type="button" onclick="Prog.weekKlaar('${t.sleutel}')">Op naar deze week</button>`);
+  },
+  weekKlaar(sleutel){ S().weekGezien=sleutel; DB.save(); Sheet.close(); },
+
   /* Mijlpalen: de ladder naar je doel, dan wat je hebt, dan wat er nog ligt.
      Bij wat nog niet behaald is staat altijd hoe ver je bent — een gesloten
      slotje zonder getal zegt je niets. */
@@ -6431,6 +6550,19 @@ DB.boot();
   sp.addEventListener("click",weg,{once:true});
   setTimeout(weg,2500);
 })();
+
+/* De weekterugblik, ná het openingsscherm. Eén keer per week: zodra de sleutel
+   van deze maandag anders is dan wat er bewaard staat. Loopt er een workout,
+   dan niet — dan wil je bij je sets. */
+setTimeout(()=>{
+  try{
+    if(!DB.d || DB.d.active) return;
+    const t=weekTerugblik();
+    if(!t) return;
+    if(weekGezien()===t.sleutel) return;
+    Prog.weekSheet(t);
+  }catch(e){}
+},3000);
 if(!DB.d.sessions.length && !DB.d.weights.length) laadStartdata();
 render();
 if(DB.d.active) toast("Je training liep nog — ga verder waar je gebleven was");
