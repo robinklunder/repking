@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 19:50";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 20:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1395,21 +1395,22 @@ function weekTerugblik(){
   if(ratio>=1.3 || zwaarRatio>=1.6){
     const pct=Math.round((Math.max(ratio,zwaarRatio)-1)*100);
     advies={soort:"terug", kop:"Schakel deze week terug",
-      tekst:`Je deed ${setsWk[1]} werksets tegen ${Math.round(basis)} die je gewend bent — ${pct}% meer. `
-           +`Dat is precies het patroon dat bij jou twee keer op een blessure uitliep. `
-           +`Zelfde oefeningen, een derde minder sets, en stop elke set met twee of drie in de tank. `
-           +`Volgende week ga je er sterker uit dan je erin ging.`};
+      tekst:`${setsWk[1]} werksets tegen ${Math.round(basis)} die je gewend bent — ${pct}% meer. `
+           +`Dit is exact het patroon waar je twee keer op een blessure bent uitgelopen. `
+           +`Je hebt niets te bewijzen deze week. Zelfde oefeningen, een derde minder sets, twee in de tank. `
+           +`Wie niet zelf terugschakelt, wordt teruggeschakeld.`};
   } else if(ratio<=0.7){
     advies={soort:"knallen", kop:"Tijd om te knallen",
-      tekst:`${setsWk[1]} werksets tegen ${Math.round(basis)} die je normaal draait. Je bent hersteld, `
-           +`je hebt ruimte, en je lichaam wacht op een reden om sterker te worden. `
-           +`Geef hem die reden. Don't be a pussy — REFORGE YOURSELF.`};
+      tekst:`${setsWk[1]} werksets tegen ${Math.round(basis)} die je normaal draait. Vorige week was een opwarmertje. `
+           +`Je bent uitgerust, je hebt ruimte, en je lichaam wacht op een reden om sterker te worden — `
+           +`die geef je het niet door af te wachten. Don't be a pussy — REFORGE YOURSELF.`};
   } else {
     const gat = nu.duw && nu.trek/nu.duw < 0.5;
-    advies={soort:"door", kop:"Houd dit vast",
-      tekst:`${setsWk[1]} werksets, in lijn met wat je gewend bent. Dit is het tempo waar je op groeit. `
-           +(gat ? `Pak deze week het trekwerk erbij — daar ligt je winst, niet in méér drukken.`
-                 : `Zet er deze week één zware set of één kilo bovenop. Meer hoeft niet.`)};
+    advies={soort:"door", kop:"Netjes is niet genoeg",
+      tekst:`${setsWk[1]} werksets, keurig in lijn met wat je gewend bent. En daar zit het probleem: `
+           +`je lichaam past zich aan wat het kent, en dit kent het. `
+           +(gat ? `Deze week het trekwerk verdubbelen. Nog meer drukken maakt je niet sterker, een rug die de stang kan dragen wel.`
+                 : `Eén kilo erbij of één zware set extra. Comfortabel is het tegenovergestelde van sterker worden.`)};
   }
 
   return {van, tot, nu, eerder, zwaarst, records, advies,
@@ -3930,11 +3931,11 @@ const Prog={
 
     // De slotzin pakt het sterkste dat er in de cijfers zit.
     let slot;
-    if(t.records.length)        slot = `Je tilde zwaarder dan je ooit deed. Dat is niet het gevolg van die ene week — dat is wat alle weken ervóór hebben opgebouwd.`;
-    else if(meer>0)             slot = `Je stond ${meer} keer vaker in de gym dan de week ervoor. Frequentie is saai en het werkt.`;
-    else if(meerSets>0)         slot = `Evenveel trainingen, maar ${meerSets} werksets meer. Je deed meer in dezelfde tijd.`;
-    else if(t.nu.workouts>=3)   slot = `${t.nu.workouts} trainingen in een week. Dat is het tempo waar je bankdruk van groeit.`;
-    else                        slot = `Een rustige week hoort er ook bij — zolang er weer een zware op volgt.`;
+    if(t.records.length)        slot = `Je tilde zwaarder dan je ooit deed. Geen geluk en geen goede dag — dat is wat alle weken ervóór hebben opgebouwd. Vanaf nu is dit je nieuwe normaal, niet je hoogtepunt.`;
+    else if(meer>0)             slot = `Je stond ${meer} keer vaker in de gym dan de week ervoor. Frequentie is saai, ondankbaar, en werkt beter dan welk programma dan ook.`;
+    else if(meerSets>0)         slot = `Evenveel trainingen, ${meerSets} werksets meer. Dat is geen toeval. Dat is harder werken in dezelfde tijd.`;
+    else if(t.nu.workouts>=3)   slot = `${t.nu.workouts} trainingen. Dit is het tempo waarop 140 kg een kwestie van tijd wordt. Twee per week is dat niet.`;
+    else                        slot = `Een rustige week hoort erbij. Eén. Niet twee.`;
 
     Sheet.open("Je week",`
       <p class="mut">${dShort(t.van)} tot en met ${dShort(t.tot)}</p>
