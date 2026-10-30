@@ -28,8 +28,12 @@
      Duwen (accent) en Trekken (good) naast elkaar. Met turquoise als accent
      moet good gewoon groen zijn, anders lopen die twee in elkaar over. */
   --good:#8FD96B; --good-soft:#1B2A16;
+  --good-ink:#06231C;                /* donkere tekst óp een groen vlak */
   --warn:#E3B341; --warn-soft:#332913;
   --bad:#F0685B;  --bad-soft:#3A1B18;
+  /* Een persoonlijk record is geen "goed", het is iets zeldzamers. Daarom
+     goud en niet het groen dat ook een afgevinkte set markeert. */
+  --pr:#D6B56D;   --pr-soft:#2E2718;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
   --shadow-2:0 2px 4px rgba(0,0,0,.35), 0 12px 28px rgba(0,0,0,.45);
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
@@ -143,6 +147,7 @@ main > *{flex:0 0 auto}
 .chip.warn{background:var(--warn-soft);color:var(--warn)}
 .chip.bad{background:var(--bad-soft);color:var(--bad)}
 .chip.acc{background:var(--accent-soft);color:var(--accent)}
+.chip.pr{background:var(--pr-soft);color:var(--pr)}
 
 /* Statistiek-tegels */
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:1px;background:var(--line);border-radius:var(--r);overflow:hidden;border:1px solid var(--line)}
@@ -230,7 +235,7 @@ main > *{flex:0 0 auto}
   background:var(--surface-3);color:var(--ink-3);border:1px solid transparent;
 }
 .tick svg{width:23px;height:23px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round}
-.tick.on{background:var(--good);color:#06231C;border-color:transparent}
+.tick.on{background:var(--good);color:var(--good-ink);border-color:transparent}
 .ex-foot{display:flex;gap:8px;padding:9px 13px 12px;border-top:1px solid var(--line)}
 .prev-hint{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
 
@@ -330,11 +335,6 @@ canvas{display:block;width:100%;height:100%}
 .tip-main .do{font-size:13.5px;color:var(--ink);margin-top:7px;padding:8px 10px;background:var(--surface-2);border-radius:9px;border-left:2px solid var(--accent)}
 .tip-top{display:flex;align-items:center;gap:7px;margin-bottom:4px}
 
-/* Plaatrekenaar */
-.plates{display:flex;align-items:center;justify-content:center;gap:2px;padding:16px 10px;min-height:96px;background:var(--surface-2);border-radius:11px;overflow-x:auto}
-.bar{width:100%;min-width:40px;height:6px;background:var(--line-strong);border-radius:2px;flex:1}
-.plate{border-radius:2px;flex:none;display:grid;place-items:center;font-size:9px;font-weight:800;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5);width:13px}
-.plate.light{color:#222;text-shadow:none}
 
 /* ============================================================
    BODYWORKOUT — stopwatch, intervaltimer en rondes
@@ -347,7 +347,7 @@ canvas{display:block;width:100%;height:100%}
 .intervalbalk{padding:12px 16px;display:flex;align-items:center;gap:12px;
   border-top:1px solid var(--line);background:var(--surface-2)}
 .intervalbalk.werk{background:var(--accent);color:var(--accent-ink)}
-.intervalbalk.rust{background:var(--good);color:#06231C}
+.intervalbalk.rust{background:var(--good);color:var(--good-ink)}
 .intervalbalk .t{font-family:var(--mono);font-variant-numeric:tabular-nums;
   font-size:28px;font-weight:750;letter-spacing:-.04em;min-width:78px}
 .intervalbalk .l{flex:1;font-size:12.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase}
@@ -363,7 +363,7 @@ canvas{display:block;width:100%;height:100%}
 .rondeknop{width:48px;height:44px;flex:none;border-radius:11px;background:var(--accent);
   color:var(--accent-ink);font-size:22px;font-weight:750;line-height:1}
 .rondeknop:active{filter:brightness(.9)}
-.rondeknop.klaar{background:var(--good);color:#06231C}
+.rondeknop.klaar{background:var(--good);color:var(--good-ink)}
 
 /* Diversen */
 .hr{height:1px;background:var(--line);margin:2px 0}
@@ -598,7 +598,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 16:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 17:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1151,7 +1151,9 @@ function mijlpaalGezien(){
 function mijlpalen(extra){
   const f=focusOefening(); if(!f) return null;
   const ex=f.ex, doel=doelVan(ex);
-  const stap=(doel.stap||stapVan(ex))*2;
+  // Treden van één stap, niet twee: bij bankdrukken is dat 2,5 kg. Fijner
+  // verdeeld betekent vaker iets te vieren, en dat is het punt van een ladder.
+  const stap=doel.stap||stapVan(ex);
   const sessies = extra ? DB.d.sessions.concat([extra]) : DB.d.sessions;
   const WEEK=6048e5, nu=Date.now();
 
@@ -1171,7 +1173,9 @@ function mijlpalen(extra){
     for(const st of w) if((st.w||0)>topKg){ topKg=st.w; topDatum=s.date; }
   }
   const doelKg = (ex.doel && ex.doel.max1rm>0) ? ex.doel.max1rm : 0;
-  const eersteTrede = doelKg ? doelKg - 8*stap : 0;
+  // Zestien treden terug, zodat de ladder dezelfde afstand overspant als
+  // voorheen (bij hem 100 tot 140 kg) maar in kleinere stappen.
+  const eersteTrede = doelKg ? doelKg - 16*stap : 0;
   const drempel = topKg*0.85;
 
   const W=[];
@@ -3260,7 +3264,7 @@ const Train={
       </div>
       <div class="card${prs.length?" pr-pop":""}">
         <div class="card-head"><div class="card-title">Zo ging het</div>
-          ${prs.length?`<span class="chip good">${prs.length}× PR</span>`:""}</div>
+          ${prs.length?`<span class="chip pr">${prs.length}× PR</span>`:""}</div>
         <div style="padding:13px 14px 15px;display:flex;flex-direction:column;gap:9px">
           ${this.samenvatting(a).map(z=>`<p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">${z}</p>`).join("")}
         </div>
@@ -3506,7 +3510,7 @@ const Log={
                 ${top&&top.w?`<span class="num" style="color:var(--ink-2);font-size:12.5px">zwaarst: ${esc(top.naam)} ${setTekst(top.w,top.r,true)}</span>`:""}
               </div>
               <span class="chip ${srt==="body"?"acc":""}">${SOORTNAAM[srt]}</span>
-              ${records?`<span class="chip good">${records>1?records+"× ":""}PR</span>`:""}
+              ${records?`<span class="chip pr">${records>1?records+"× ":""}PR</span>`:""}
               <div class="chev"></div></button>`;
           }).join("")+`</div>`;
         }).join("");
