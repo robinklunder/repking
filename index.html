@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 19:10";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 19:50";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1332,6 +1332,17 @@ function weekTerugblik(){
   let zwaarst=null;
   const topVoor={}, topWeek={};
 
+  /* Voor het advies: hoe zwaar was die week vergeleken met je eigen gewoonte?
+     Daarvoor tellen we de werksets per week terug, en los daarvan de zware
+     sets op je focusoefening — want twintig lichte sets zijn iets anders dan
+     twintig sets op 95% van je werkgewicht. */
+  const WEEK=6048e5;
+  const setsWk=[0,0,0,0,0,0], zwaarWk=[0,0,0,0,0,0];
+  const f=focusOefening();
+  const wg=f?werkGewicht(f.id):0;
+  const zwaarDrempel=wg?wg*0.85:0;
+  const wkVan=d=>Math.floor((maNu.getTime()-dParse(d).getTime())/WEEK)+1;
+
   for(const s of DB.d.sessions){
     const inNu = s.date>=van && s.date<=tot;
     const inEerder = s.date>=vanD && s.date<=totD;
@@ -1346,6 +1357,12 @@ function weekTerugblik(){
         const g=exGroepen(ex);
         if(g.some(y=>y==="Borst"||y==="Schouders"||y==="Triceps")) vak.duw+=w.length;
         if(g.some(y=>y==="Rug"||y==="Biceps")) vak.trek+=w.length;
+      }
+      const wi=wkVan(s.date);
+      if(wi>=1 && wi<=5 && ex.type!=="cardio"){
+        setsWk[wi]+=w.length;
+        if(f && e.exId===f.id && zwaarDrempel)
+          zwaarWk[wi]+=w.filter(x=>x.w>=zwaarDrempel && x.r<=6).length;
       }
       const metKg=w.filter(x=>x.w>0);
       if(!metKg.length) continue;
@@ -1366,7 +1383,36 @@ function weekTerugblik(){
       records.push({naam:exName(id), kg:topWeek[id], was:topVoor[id]});
   records.sort((a,b)=>b.kg-a.kg);
 
-  return {van, tot, nu, eerder, zwaarst, records,
+  /* Het advies voor de week die begint. Drie richtingen, en de toon hoort bij
+     de richting: na een zware week is "knallen" geen aanmoediging maar slecht
+     advies — daar liepen bij hem twee blessures uit voort. De harde zin hoort
+     dus alleen bij de week waarin hij het rustig aan deed.                   */
+  const basis = (setsWk[2]+setsWk[3]+setsWk[4]+setsWk[5])/4;
+  const zwaarBasis = (zwaarWk[2]+zwaarWk[3]+zwaarWk[4]+zwaarWk[5])/4;
+  const ratio = basis>=6 ? setsWk[1]/basis : 1;
+  const zwaarRatio = zwaarBasis>=2 ? zwaarWk[1]/zwaarBasis : 1;
+  let advies;
+  if(ratio>=1.3 || zwaarRatio>=1.6){
+    const pct=Math.round((Math.max(ratio,zwaarRatio)-1)*100);
+    advies={soort:"terug", kop:"Schakel deze week terug",
+      tekst:`Je deed ${setsWk[1]} werksets tegen ${Math.round(basis)} die je gewend bent — ${pct}% meer. `
+           +`Dat is precies het patroon dat bij jou twee keer op een blessure uitliep. `
+           +`Zelfde oefeningen, een derde minder sets, en stop elke set met twee of drie in de tank. `
+           +`Volgende week ga je er sterker uit dan je erin ging.`};
+  } else if(ratio<=0.7){
+    advies={soort:"knallen", kop:"Tijd om te knallen",
+      tekst:`${setsWk[1]} werksets tegen ${Math.round(basis)} die je normaal draait. Je bent hersteld, `
+           +`je hebt ruimte, en je lichaam wacht op een reden om sterker te worden. `
+           +`Geef hem die reden. Don't be a pussy — REFORGE YOURSELF.`};
+  } else {
+    const gat = nu.duw && nu.trek/nu.duw < 0.5;
+    advies={soort:"door", kop:"Houd dit vast",
+      tekst:`${setsWk[1]} werksets, in lijn met wat je gewend bent. Dit is het tempo waar je op groeit. `
+           +(gat ? `Pak deze week het trekwerk erbij — daar ligt je winst, niet in méér drukken.`
+                 : `Zet er deze week één zware set of één kilo bovenop. Meer hoeft niet.`)};
+  }
+
+  return {van, tot, nu, eerder, zwaarst, records, advies,
           trekPct: nu.duw ? Math.round(nu.trek/nu.duw*100) : 0,
           sleutel: dStr(maNu)};
 }
@@ -3910,6 +3956,14 @@ const Prog={
           <span class="chip pr">PR</span></div>`).join("")}
       </div>`:""}
       <div class="notebox" style="margin-top:12px;font-size:14.5px;line-height:1.55">${slot}</div>
+      ${t.advies?`<div class="sec-label">Deze week</div>
+        <div class="card">
+          <div class="card-head"><div class="card-title">${esc(t.advies.kop)}</div>
+            <span class="chip ${t.advies.soort==="terug"?"warn":t.advies.soort==="knallen"?"acc":"good"}">
+              ${t.advies.soort==="terug"?"rustiger":t.advies.soort==="knallen"?"erop":"doorgaan"}</span></div>
+          <div style="padding:13px 14px 15px"><p style="font-size:14.5px;line-height:1.6;color:var(--ink-2)">
+            ${t.advies.tekst}</p></div>
+        </div>`:""}
       <button class="btn primary wide" type="button" onclick="Prog.weekKlaar('${t.sleutel}')">Op naar deze week</button>`);
   },
   weekKlaar(sleutel){ S().weekGezien=sleutel; DB.save(); Sheet.close(); },
