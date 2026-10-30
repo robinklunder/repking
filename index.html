@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 12:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 13:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1019,6 +1019,15 @@ function voorstelVoor(exId, exclSessionId, taak){
   }
 
   // 3. binnen het bereik: eerst herhalingen erbij
+  // Vier of meer in de tank is geen "bijna": dan kon je er nog een stuk bij.
+  // Dit stond eerst op één stap terwijl tak 2 bij dezelfde RIR al twee stappen
+  // deed — inconsequent, en bij Robin bleef zijn bankdruk daardoor hangen op
+  // 85 kg met RIR 3,8 terwijl hij een week eerder 110 kg drukte.
+  // De grens ligt op 3,5 en niet op 4, omdat dit een gemiddelde over je sets
+  // is: wie 4, 4, 3, 4 invult komt uit op 3,75 en bedoelt gewoon "een stuk of
+  // vier in de tank". Een halve herhaling speling.
+  if(rir!==null && rir>=3.5)
+    return maak(rond(kg+Math.min(stap*2,kg*0.15)), `Je zat op ${setsTekst}${rirTekst}. Dat is nog ruim binnen wat je kunt — twee stappen omhoog kan.`, "omhoog");
   if(rir!==null && rir>=3)
     return maak(rond(kg+sprong), `Je zat op ${setsTekst}${rirTekst}. Je bent nog niet aan de bovenkant van je bereik, maar het kostte je weinig — dit gewicht mag omhoog.`, "omhoog");
   return maak(kg, `Je zat op ${setsTekst}${rirTekst}. Blijf op ${nf(kg)} kg en werk naar ${doel.max} herhalingen in elke set.`, "zelfde");
