@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 14:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 14:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -2710,7 +2710,14 @@ const Train={
         <div class="ex-name"><b>${esc(ex.name)}</b>
           <div class="ex-meta"><span class="chip">${esc(exGroepen(ex).join(" · ")||"?")}</span>
           <span class="prev-hint">${esc(vorigeTekst(vorige))}</span>
-          ${(()=>{ const r=recordTekst(e.exId,a.id); return r?`<span class="prev-hint">· ${esc(r)}</span>`:""; })()}</div>
+          ${(()=>{ const r=recordTekst(e.exId,a.id); return r?`<span class="prev-hint">· ${esc(r)}</span>`:""; })()}
+          ${(()=>{
+            // Het voorstel hoort naast wat je vorige keer deed, niet alleen op
+            // de balk erboven: die verdwijnt zodra je je eerste set afvinkt, en
+            // dan sta je bij set drie alsnog te rekenen.
+            const v=voorstelVoor(e.exId,a.id,laadTaak(a));
+            return v?`<span class="prev-hint" style="color:var(--accent);font-weight:650">· doe ${nf(v.kg)} kg</span>`:"";
+          })()}</div>
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
