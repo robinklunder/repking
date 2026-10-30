@@ -16,18 +16,18 @@
    ============================================================ */
 :root{
   /* REP KING FORGED — één palet, altijd donker. De lichte modus is eruit:
-     Forged Lime haalt op wit 1,33 op 1 aan contrast en is daar onleesbaar,
+     Forged Turquoise haalt op wit 1,8 op 1 aan contrast en is daar onleesbaar,
      en de lichte modus werd nooit gebruikt.
      Almost Black #111318 · Dark Steel #252A30 · Steel Grey #858A91
-     Forged Lime #B6F36B · White #FFFFFF                                   */
+     Forged Turquoise #2DD4BF · White #FFFFFF                                   */
   --ground:#111318; --surface:#171A20; --surface-2:#1C2027; --surface-3:#252A30;
   --line:#252A30; --line-strong:#3A4049;
   --ink:#FFFFFF; --ink-2:#B9BEC5; --ink-3:#858A91;
-  --accent:#B6F36B; --accent-ink:#111318; --accent-soft:#24301A; --accent-line:#4A6B2C;
-  /* Bewust gróén-blauw en niet limegroen: in de gestapelde weekgrafiek staan
-     Duwen (accent) en Trekken (good) naast elkaar, en twee tinten lime zijn
-     daar niet uit elkaar te houden. */
-  --good:#4ECB8F; --good-soft:#12332A;
+  --accent:#2DD4BF; --accent-ink:#111318; --accent-soft:#123029; --accent-line:#2A6A62;
+  /* Bewust groen en niet turquoise: in de gestapelde weekgrafiek staan
+     Duwen (accent) en Trekken (good) naast elkaar. Met turquoise als accent
+     moet good gewoon groen zijn, anders lopen die twee in elkaar over. */
+  --good:#8FD96B; --good-soft:#1B2A16;
   --warn:#E3B341; --warn-soft:#332913;
   --bad:#F0685B;  --bad-soft:#3A1B18;
   --shadow-1:0 1px 2px rgba(0,0,0,.4);
@@ -556,7 +556,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 15:00";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 15:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -5512,7 +5512,7 @@ const Meer={
     const s=S();
     Sheet.open("Instellingen",`
       <p class="mut">REP KING FORGED draait altijd op het donkere palet. De lichte modus is eruit:
-        Forged Lime is op wit niet te lezen, en je gebruikte hem nooit.</p>
+        Forged Turquoise is op wit niet te lezen, en je gebruikte hem nooit.</p>
       <button class="btn primary wide" type="button" onclick="Meer.stSave()">Opslaan</button>`);
   },
   tog(btn,k){ S()[k]=!S()[k]; btn.classList.toggle("on",S()[k]); DB.save(); },
@@ -5526,7 +5526,7 @@ const Meer={
   about(){
     Sheet.open("Over REP KING FORGED",`
       <div style="display:flex;align-items:center;gap:14px;padding:2px 0 4px">
-        <img src="data:image/png;base64,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" alt="" width="56" height="56"
+        <img src="data:image/png;base64,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" alt="" width="56" height="56"
              style="border-radius:13px;flex:none;box-shadow:var(--shadow-1)">
         <div><b style="font-size:17px;font-weight:800;letter-spacing:.04em">REP KING FORGED</b>
         <div style="font-size:11.5px;letter-spacing:.16em;color:var(--accent);font-weight:700">REFORGE YOURSELF.</div>
