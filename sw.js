@@ -1,4 +1,4 @@
-/* Rep King — offline werken in de sportschool.
+/* REP KING FORGED — offline werken in de sportschool.
 
    Aanpak: eerst het netwerk proberen, en wat binnenkomt bewaren. Lukt dat niet
    (geen bereik in de kelder), dan pakken we de bewaarde versie. Zo heb je altijd
@@ -10,7 +10,7 @@
 /* Verhoog dit nummer bij elke uitgave: alles wat onder een oudere naam bewaard
    is, wordt bij het activeren weggegooid. Zo blijft er nooit een oude versie
    op een telefoon hangen. */
-const CACHE = "repking-v38";
+const CACHE = "repking-v39";
 const BESTANDEN = [
   "./",
   "./index.html",
