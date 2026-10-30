@@ -575,7 +575,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 13:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="30 okt 2026 - 14:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1902,8 +1902,33 @@ const Advies={
     if(!s.adviesWeg || s.adviesWeg.datum!==today()) s.adviesWeg={datum:today(),ids:[]};
     return s.adviesWeg.ids;
   },
+  /* Oefeningen die jíj vandaag in het voorstel wilt, hoe de app er ook over
+     denkt. Nodig omdat geen enkele regel kan raden wat je van plan bent: een
+     oefening die je nog nooit deed staat nergens in de ranglijst, en Robins
+     face pulls staan in zijn bibliotheek onder Schouders/duwen en vallen dus
+     buiten elke trekdag. Net als wegdrukken geldt dit alleen voor vandaag. */
+  erbijgezet(){
+    const s=S();
+    if(!s.adviesBij || s.adviesBij.datum!==today()) s.adviesBij={datum:today(),ids:[]};
+    return s.adviesBij.ids;
+  },
+  erbij(){
+    ExPicker.open(exId=>{
+      const b=this.erbijgezet();
+      if(b.indexOf(exId)<0) b.push(exId);
+      // stond hij weggedrukt, dan wint je keuze van zojuist
+      const w=this.weggedrukt(); const i=w.indexOf(exId);
+      if(i>=0) w.splice(i,1);
+      DB.save(); render();
+      toast(exName(exId)+" staat erbij");
+    });
+  },
   wegdrukken(exId){
     const naam=exName(exId);
+    // Zelf toegevoegd? Dan haalt de ✕ hem gewoon weer weg in plaats van hem
+    // op de lijst "niet voorstellen vandaag" te zetten.
+    const b=this.erbijgezet(); const bi=b.indexOf(exId);
+    if(bi>=0){ b.splice(bi,1); DB.save(); render(); return toast(naam+" eruit"); }
     const w=this.weggedrukt();
     if(w.indexOf(exId)<0) w.push(exId);
     DB.save();
@@ -2173,9 +2198,32 @@ const Advies={
      anders het oude voorstel op spiergroepen. */
   opties(){
     const plan=this.bankplan();
-    if(plan) return plan;
-    return this.alle().map(v=>({soort:"groep", naam:v.dag.naam, waarom:"", opdracht:"",
+    const lijst = plan || this.alle().map(v=>({soort:"groep", naam:v.dag.naam, waarom:"", opdracht:"",
       groepen:v.groepen, oefeningen:v.oefeningen, dag:v.dag, meting:v.meting}));
+    // Wat je er zelf bij zette staat vooraan, bij elke optie: je hebt het
+    // vandaag gekozen, niet voor één bepaalde dagsoort.
+    const bij=this.erbijgezet();
+    if(!bij.length) return lijst;
+    return lijst.map(o=>{
+      const eigen=bij.map(id=>this.oefInfo(id)).filter(Boolean);
+      const rest=o.oefeningen.filter(x=>bij.indexOf(x.id)<0);
+      // Hoe meer je zelf kiest, hoe minder de app erbij verzint — maar er
+      // blijft altijd ruimte voor één voorstel, en de lijst wordt nooit
+      // langer dan zeven.
+      const ruimte=Math.max(5,Math.min(7,eigen.length+1));
+      return {...o, oefeningen:[...eigen,...rest].slice(0,ruimte)};
+    });
+  },
+  /* De gegevens die een regel in het voorstel nodig heeft. Ook voor een
+     oefening die je nog nooit deed — dan staat er "nieuw" in plaats van een
+     gewicht. */
+  oefInfo(exId){
+    const ex=exById(exId); if(!ex) return null;
+    const h=historyFor(exId);
+    const l=h.length?h[h.length-1]:null;
+    const b=l?bestOf(l.sets):{w:null,r:null};
+    return {id:exId, naam:ex.name, sessies:h.length,
+            dagen:l?daysAgo(l.date):999, w:b.w, r:b.r, groep:exGroepen(ex)[0]};
   },
 
   /* Je doel in beeld, maar alleen met een getal dat je écht getild hebt: je
@@ -2264,10 +2312,13 @@ const Advies={
             </div>`;
           }).join("")}
         </div>
-        ${this.weggedrukt().length?`<div style="padding:0 14px 10px">
-          <button type="button" onclick="Advies.terugzetten()"
-            style="font-size:12.5px;color:var(--accent);font-weight:650">
-            ${this.weggedrukt().length} weggedrukt vandaag — alles terugzetten</button></div>`:""}
+        <div style="padding:0 14px 10px">
+          <button type="button" onclick="Advies.erbij()"
+            style="font-size:13px;color:var(--accent);font-weight:650">+ Oefening erbij</button>
+          ${this.weggedrukt().length?`<button type="button" onclick="Advies.terugzetten()"
+            style="font-size:12.5px;color:var(--ink-3);font-weight:650;margin-left:14px">
+            ${this.weggedrukt().length} weggedrukt — terugzetten</button>`:""}
+        </div>
         <div style="padding:0 14px 13px"><button class="btn primary wide" type="button"
           onclick="Advies.start()">Start deze workout</button></div>
       </div>`;
