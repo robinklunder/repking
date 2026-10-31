@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="31 okt 2026 - 10:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="31 okt 2026 - 11:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1691,7 +1691,7 @@ function go(p,arg){ page=p; pageArg=arg||null; const v=$("#view"); if(v) v.scrol
 
 /* Een scherm dat je vanuit een tab opent houdt die tab aan, anders lijkt het
    alsof je nergens meer bent. */
-const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog", evaluatie:"prog", mijlpalen:"prog"};
+const TAB_VAN={sessie:"log", oefening:"prog", jaar:"prog", evaluatie:"prog", mijlpalen:"prog", maatje:"prog"};
 function renderTabs(){
   const actief=TAB_VAN[page]||page;
   $("#tabs").innerHTML=TABS.map(([k,l])=>
@@ -1822,6 +1822,7 @@ function render(){
   else if(page==="jaar")  Prog.jaar(V);
   else if(page==="evaluatie")Prog.evaluatie(V);
   else if(page==="mijlpalen")Prog.mijlpalenScherm(V);
+  else if(page==="maatje") Maatje.render(V);   // vult V zelf, niets toewijzen
   // Kan de app niets bewaren? Dan hoort dat op élk scherm te staan, niet alleen op het eerste.
   if(!storageOK){
     const w=document.createElement("div");
@@ -1837,6 +1838,191 @@ function head(title,sub,action){
   $("#pgSub").innerHTML=sub||"";
   $("#pgAction").innerHTML=action||"";
 }
+
+/* ============================================================================
+   MAATJE — je cijfers naast die van een trainingsmaatje
+
+   Zijn back-up plak je erin; die wordt apart bewaard en nooit met je eigen
+   data vermengd. Er gaat niets naar een server: alles blijft in deze browser.
+   Oefeningen koppelen we op naam, want ieders app heeft eigen id's.
+   ============================================================================ */
+const Maatje={
+  get(){ return DB.d.maatje||null; },
+
+  /* Een back-up omzetten naar iets vergelijkbaars: namen in plaats van id's */
+  normaliseer(d){
+    const ex=new Map((d.exercises||[]).map(e=>[e.id,e]));
+    return {sessies:(d.sessions||[]).map(s=>({
+      date:s.date,
+      entries:(s.entries||[]).map(e=>{
+        const x=ex.get(e.exId)||{name:"Onbekend",groep:"?",cat:"?"};
+        return {naam:x.name, groep:x.groep, cat:x.cat,
+                sets:(e.sets||[]).filter(z=>z.done!==false)
+                     .map(z=>[z.w||0, z.r||0, z.t==="warmup"?1:0])};
+      })
+    }))};
+  },
+  mijn(){ return this.normaliseer(DB.d); },
+
+  laad(json,naam){
+    let d; try{ d=JSON.parse(json); }catch(e){ return "Dit is geen geldige back-up."; }
+    if(!d||!Array.isArray(d.sessions)||!Array.isArray(d.exercises))
+      return "Dit bestand bevat geen trainingen. Laat hem exporteren via Meer → Exporteren.";
+    if(!d.sessions.length) return "Er staan nog geen trainingen in deze back-up.";
+    const n=this.normaliseer(d);
+    DB.d.maatje={naam:(naam||"Maatje").trim()||"Maatje", opgehaald:today(), data:n};
+    DB.save();
+    return null;
+  },
+  wis(){ delete DB.d.maatje; DB.save(); },
+
+  /* ---- rekenwerk op genormaliseerde data ---- */
+  werksets(e){ return e.sets.filter(s=>s[2]===0 && s[1]>0); },
+  besteE1(sets){ let b=0; for(const s of sets){ const v=e1rm(s[0],s[1]); if(v>b) b=v; } return b; },
+
+  perOefening(nd,dagen){
+    const uit={};
+    for(const s of nd.sessies){
+      if(dagen && daysAgo(s.date)>dagen) continue;
+      for(const e of s.entries){
+        const w=this.werksets(e); if(!w.length) continue;
+        const k=e.naam.toLowerCase();
+        if(!uit[k]) uit[k]={naam:e.naam,groep:e.groep,sessies:0,e1:0,zwaarst:0,sets:0,reeks:[]};
+        const u=uit[k];
+        u.sessies++; u.sets+=w.length;
+        const e1=this.besteE1(w);
+        if(e1>u.e1) u.e1=e1;
+        for(const x of w) if(x[0]>u.zwaarst) u.zwaarst=x[0];
+        u.reeks.push({date:s.date,e1});
+      }
+    }
+    return uit;
+  },
+  perGroep(nd,dagen){
+    const uit={};
+    for(const s of nd.sessies){
+      if(dagen && daysAgo(s.date)>dagen) continue;
+      for(const e of s.entries){
+        const n=this.werksets(e).length; if(!n) continue;
+        uit[e.groep]=(uit[e.groep]||0)+n;
+      }
+    }
+    return uit;
+  },
+  kort(nd,dagen){
+    let vol=0,sets=0,n=0;
+    for(const s of nd.sessies){
+      if(dagen && daysAgo(s.date)>dagen) continue;
+      let raak=false;
+      for(const e of s.entries) for(const x of this.werksets(e)){
+        vol+=x[0]*x[1]; sets++; raak=true;
+      }
+      if(raak) n++;
+    }
+    const wkn=Math.max(1,(dagen||365)/7);
+    return {trainingen:n, sets, vol, perWeek:Math.round(n/wkn*10)/10, setsPerWeek:Math.round(sets/wkn)};
+  },
+  /* Groei op een oefening over de gekozen periode */
+  groei(u){
+    if(!u||u.reeks.length<2) return null;
+    const r=u.reeks.slice().sort((a,b)=>a.date<b.date?-1:1);
+    const eerst=r[0].e1, laatst=r[r.length-1].e1;
+    if(!eerst) return null;
+    return Math.round((laatst/eerst-1)*100);
+  },
+
+  /* ---- het scherm ---- */
+  render(V){
+    const m=this.get();
+    if(!m){ go("prog"); return; }
+    const dagen=56;                                  // laatste 8 weken
+    const A=this.mijn(), B=m.data;
+    const ka=this.kort(A,dagen), kb=this.kort(B,dagen);
+    const oa=this.perOefening(A,dagen), ob=this.perOefening(B,dagen);
+    const ga=this.perGroep(A,dagen), gb=this.perGroep(B,dagen);
+    head("Jij en "+esc(m.naam), `Laatste 8 weken · bijgewerkt ${relDate(m.opgehaald)}`,
+      `<button class="btn sm ghost" type="button" onclick="go('prog')">Terug</button>`);
+
+    const samen=Object.keys(oa).filter(k=>ob[k])
+      .sort((x,y)=>(ob[y].sessies+oa[y].sessies)-(ob[x].sessies+oa[x].sessies));
+
+    const balk=(a,b,labelA,labelB)=>{
+      const t=Math.max(a,b)||1;
+      return `<div style="display:flex;flex-direction:column;gap:5px">
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="width:52px;flex:none;font-size:11.5px;color:var(--ink-3)">jij</span>
+          <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+            <i style="display:block;height:100%;width:${a/t*100}%;background:var(--accent);border-radius:99px"></i></div>
+          <span class="num" style="width:56px;text-align:right;font-size:12px">${labelA}</span></div>
+        <div style="display:flex;align-items:center;gap:9px">
+          <span style="width:52px;flex:none;font-size:11.5px;color:var(--ink-3)">${esc(m.naam)}</span>
+          <div style="flex:1;height:9px;background:var(--surface-3);border-radius:99px;overflow:hidden">
+            <i style="display:block;height:100%;width:${b/t*100}%;background:var(--warn);border-radius:99px"></i></div>
+          <span class="num" style="width:56px;text-align:right;font-size:12px">${labelB}</span></div>
+      </div>`;
+    };
+
+    V.innerHTML=`
+      <div class="card">
+        <div class="card-head"><div class="card-title">Hoe vaak</div></div>
+        <div style="padding:13px 14px">${balk(ka.perWeek,kb.perWeek,ka.perWeek+"/wk",kb.perWeek+"/wk")}</div>
+        <div class="card-head" style="border-top:1px solid var(--line)"><div class="card-title">Werksets per week</div></div>
+        <div style="padding:13px 14px">${balk(ka.setsPerWeek,kb.setsPerWeek,ka.setsPerWeek,kb.setsPerWeek)}</div>
+        <div class="card-head" style="border-top:1px solid var(--line)"><div class="card-title">Volume</div></div>
+        <div style="padding:13px 14px">${balk(ka.vol,kb.vol,kf(ka.vol)+" kg",kf(kb.vol)+" kg")}</div>
+      </div>
+
+      ${samen.length?`
+      <div class="sec-label">Oefeningen die jullie allebei doen</div>
+      <div class="card"><div class="scrollx"><table class="tbl">
+        <thead><tr><th>Oefening</th><th class="n">Jij</th><th class="n">${esc(m.naam)}</th><th class="n">Verschil</th></tr></thead>
+        <tbody>${samen.slice(0,14).map(k=>{
+          const a=Math.round(oa[k].e1), b=Math.round(ob[k].e1);
+          const d=a-b;
+          const kleur=d>0?"var(--good)":(d<0?"var(--warn)":"var(--ink-3)");
+          return `<tr>
+            <td><b>${esc(oa[k].naam)}</b><br><span style="font-size:11px;color:var(--ink-3)">${esc(oa[k].groep)}</span></td>
+            <td class="n">${a||"–"}</td><td class="n">${b||"–"}</td>
+            <td class="n" style="color:${kleur};font-weight:700">${d>0?"+":""}${d} kg</td></tr>`;
+        }).join("")}</tbody>
+      </table></div></div>
+      <p class="mut" style="padding:0 4px">Vergeleken op geschat 1RM. Verschil in lichaamsbouw en
+      trainingsjaren telt hier niet in mee — wie sneller groeit zegt meer dan wie zwaarder tilt.</p>
+
+      <div class="sec-label">Wie gaat er harder vooruit</div>
+      <div class="card"><div class="scrollx"><table class="tbl">
+        <thead><tr><th>Oefening</th><th class="n">Jij</th><th class="n">${esc(m.naam)}</th></tr></thead>
+        <tbody>${samen.slice(0,10).map(k=>{
+          const ga2=this.groei(oa[k]), gb2=this.groei(ob[k]);
+          const kl=v=>v==null?"var(--ink-3)":(v>1?"var(--good)":(v<-1?"var(--bad)":"var(--ink-3)"));
+          const tx=v=>v==null?"–":(v>0?"+":"")+v+"%";
+          return `<tr><td>${esc(oa[k].naam)}</td>
+            <td class="n" style="color:${kl(ga2)};font-weight:700">${tx(ga2)}</td>
+            <td class="n" style="color:${kl(gb2)};font-weight:700">${tx(gb2)}</td></tr>`;
+        }).join("")}</tbody>
+      </table></div></div>`
+      :`<div class="card"><div class="empty"><div class="big">Nog geen gedeelde oefeningen</div>
+        <p>Zodra jullie allebei dezelfde oefening loggen — met dezelfde naam — verschijnt hier de vergelijking.</p></div></div>`}
+
+      <div class="sec-label">Waar jullie werk heen ging</div>
+      <div class="card"><div style="padding:13px 14px;display:flex;flex-direction:column;gap:13px">
+        ${GROEPEN.filter(g=>ga[g]||gb[g]).map(g=>`
+          <div><div style="font-size:12.5px;color:var(--ink-2);margin-bottom:5px">${g}</div>
+          ${balk(ga[g]||0,gb[g]||0,(ga[g]||0)+" sets",(gb[g]||0)+" sets")}</div>`).join("")}
+      </div></div>
+
+      <div class="row">
+        <button class="btn ghost wide" type="button" onclick="Meer.maatje()">Nieuwe back-up inladen</button>
+        <button class="btn danger wide" type="button" onclick="Maatje.verwijder()">Verwijderen</button>
+      </div>`;
+  },
+
+  async verwijder(){
+    if(await ask("Gegevens van je maatje wissen?","Je eigen trainingen blijven uiteraard staan.","Wissen",true)){
+      this.wis(); go("prog"); toast("Gewist");
+    }
+  }
+};
 
 /* ============================================================================
    INSPANNING — hoe zwaar was deze training vergeleken met je andere?
@@ -2715,6 +2901,22 @@ const Train={
       return;
     }
 
+    /* Wie net begint weet niet dat zijn trainingen alleen in deze browser
+       staan. Pas na drie workouts, anders is het de eerste indruk, en hij
+       verdwijnt zodra er één back-up is gemaakt. */
+    if(DB.d.sessions.length>=3 && !S().lastBackup) h+=`
+      <div class="card" style="border-color:var(--warn)">
+        <div class="card-head"><div class="card-title">Maak een back-up</div>
+          <span class="chip warn">belangrijk</span></div>
+        <div style="padding:13px 14px 15px">
+          <p style="font-size:14.5px;line-height:1.55;color:var(--ink-2)">
+            Je ${DB.d.sessions.length} trainingen staan alleen in de opslag van deze browser. Wis je
+            je gegevens of raak je je telefoon kwijt, dan is alles weg — er staat nergens een kopie.
+            Eén bestand opslaan is genoeg.</p>
+          <button class="btn primary wide" type="button" style="margin-top:11px"
+            onclick="Meer.exportSheet()">Nu een back-up maken</button>
+        </div>
+      </div>`;
     h+=Advies.kaart();
     h+=`<button class="btn primary lg wide" type="button" onclick="Train.start(null)">Lege workout starten</button>`;
     if(DB.d.sessions.length>=4) h+=Advies.balans();
@@ -4063,6 +4265,9 @@ const Prog={
         ${ss.length>=20?`<button class="btn wide" type="button" onclick="go('jaar')">Jaaroverzicht</button>`:""}
       </div>`:""}
       ${mijlpalen()?`<button class="btn wide" type="button" onclick="go('mijlpalen')">Mijlpalen</button>`:""}
+      ${Maatje.get()
+        ? `<button class="btn wide" type="button" onclick="go('maatje')">Jij en ${esc(Maatje.get().naam)}</button>`
+        : `<button class="btn ghost wide" type="button" onclick="Meer.maatje()">Vergelijk met een trainingsmaatje</button>`}
 
       <div class="card">
         <div class="card-head"><div class="card-title">Werksets per week</div></div>
@@ -5561,6 +5766,33 @@ const Meer={
         <button class="li" type="button" onclick="Meer.about()"><div class="li-main"><b>Over deze app</b><span>Hoe het werkt, waar je data staat</span></div><div class="chev"></div></button>
       </div>
       ${!storageOK?`<div class="warnbox">Opslaan werkt niet in deze browser. Exporteer je data voordat je afsluit.</div>`:""}`;
+  },
+
+  /* ---- Trainingsmaatje ----------------------------------------------------
+     Hij laat zijn maatje de back-up exporteren en plakt die hier. Die data
+     wordt apart bewaard onder `DB.d.maatje` en nooit met zijn eigen sessies
+     vermengd — ook niet in records, grafieken of adviezen. Er gaat niets naar
+     een server: het blijft in deze browser staan.                           */
+  maatje(){
+    const m=Maatje.get();
+    Sheet.open("Trainingsmaatje",`
+      <p class="mut">Laat hem of haar in de eigen app naar <b>Meer → Exporteren → Back-up (JSON)</b>
+        gaan, het bestand naar je sturen, en plak de inhoud hieronder.</p>
+      <div class="field"><label>Naam</label>
+        <input class="ctrl" id="maatNaam" value="${m?esc(m.naam):""}" placeholder="bijv. Gerrit"></div>
+      <div class="field"><label>De inhoud van zijn back-upbestand</label>
+        <textarea class="ctrl" id="maatJson" style="min-height:150px;font-size:12px"
+          placeholder="Plak hier alles wat in het bestand staat"></textarea></div>
+      <button class="btn primary wide" type="button" onclick="Meer.maatjeLaad()">Inladen</button>
+      <p class="mut">Zijn trainingen blijven van hem: ze tellen nergens in jouw cijfers mee en je
+        kunt ze met één knop weer wissen.</p>
+      ${m?`<button class="btn danger wide" type="button" onclick="Maatje.verwijder();Sheet.close()">
+        Gegevens van ${esc(m.naam)} wissen</button>`:""}`);
+  },
+  maatjeLaad(){
+    const fout=Maatje.laad($("#maatJson").value, $("#maatNaam").value);
+    if(fout) return toast(fout, 3400);
+    Sheet.close(); go("maatje"); toast("Ingeladen");
   },
 
   /* ---- Oefeningen ---- */
