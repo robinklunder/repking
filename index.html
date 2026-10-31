@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="30 okt 2026 - 20:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="31 okt 2026 - 10:30";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -2297,7 +2297,7 @@ const Advies={
      langst liet liggen — goed om je lichaam in balans te houden. Maar op een
      dag die een doel dient, wil je juist de oefeningen die je echt draait:
      anders stelt de trekdag kettlebell swings voor terwijl de opdracht over
-     zware rijen en face pulls gaat. */
+     zware rows en face pulls gaat. */
   kiesOefeningen(groepen,vaak,verdeling){
     const uit=[];
     // de urgentste groep krijgt er twee, de rest één, tot je op ~5 oefeningen zit
@@ -2466,7 +2466,8 @@ const Advies={
       // Bewust geen oefeningen bij naam: face pulls staan bij hem onder
       // Schouders en vallen dus buiten een trekdag. Liever zeggen wát je moet
       // doen dan een oefening beloven die niet in de lijst staat.
-      opdracht:`3 tot 4 sets van 6–8 op je zware rijen, en daarnaast iets lichters van 15–20 voor je achterste schouderkop. Die twee samen houden je schouderbladen op hun plek als de stang zwaar wordt.`};
+      // "rows", niet "rijen": in de sportschool heet die oefening gewoon zo.
+      opdracht:`3 tot 4 sets van 6–8 op je zware rows, en daarnaast iets lichters van 15–20 voor je achterste schouderkop. Die twee samen houden je schouderbladen op hun plek als de stang zwaar wordt.`};
     const benenDag={soort:"benen", naam:"Benendag",
       groepen:["Quadriceps","Hamstrings","Bilspieren","Kuiten"], focus:false,
       waarom:`Je bankdrukdagen en je trekwerk zijn deze week gedekt. Benen kosten je nu niets van je bankdruk en houden de rest in balans.`,
@@ -5634,7 +5635,7 @@ const Meer={
       .replace(/'/g," ").replace(/[^a-z0-9 ]/g," ")
       .replace(/\b(the|met|op|a|an)\b/g," ")
       // "backrow", "back row" en "row" zijn bij hem allemaal hetzelfde: zijn
-      // rijen staan onder vijf verschillende namen in het logboek.
+      // rows staan onder vijf verschillende namen in het logboek.
       .replace(/\bback\s*row/g,"row")
       // Materiaal en houding zeggen niets over wélke beweging het is.
       // Let op: wide, close, neutral en reverse staan hier bewust NIET bij.
