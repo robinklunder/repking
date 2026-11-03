@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="31 okt 2026 - 12:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="3 nov 2026 - 09:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1080,6 +1080,21 @@ function voorstelVoor(exId, exclSessionId, taak){
   if(rir!==null && rir>=3)
     return maak(rond(kg+sprong), `Je zat op ${setsTekst}${rirTekst}. Je bent nog niet aan de bovenkant van je bereik, maar het kostte je weinig — dit gewicht mag omhoog.`, "omhoog");
   return maak(kg, `Je zat op ${setsTekst}${rirTekst}. Blijf op ${nf(kg)} kg en werk naar ${doel.max} herhalingen in elke set.`, "zelfde");
+}
+
+/* Heeft eigen lichaamsgewicht zin bij deze oefening? Bij bankdrukken is die
+   knop onzin; bij dips en pull-ups is hij juist het hele punt. We kijken eerst
+   naar wat je zelf gelogd hebt — heb je hem ooit gebruikt, dan blijft hij staan
+   — en anders naar de naam. Staat je oefening er niet bij, dan kun je BW altijd
+   nog aanzetten via het setmenu (tik op het setnummer).                      */
+const BW_NAMEN=/\b(pull.?ups?|chin.?ups?|optrekken|dips?|push.?ups?|opdrukken|muscle.?ups?|hanging|leg raises?|knee raises?|australian|inverted row|pistol|burpee|plank)\b/i;
+function magBW(exId){
+  const ex=exById(exId); if(!ex || ex.type==="cardio") return false;
+  if(BW_NAMEN.test(ex.name)) return true;
+  for(const d of historyFor(exId)) for(const s of d.sets) if(s.bw) return true;
+  if(DB.d.active) for(const e of DB.d.active.entries)
+    if(e.exId===exId) for(const s of e.sets) if(s.bw) return true;
+  return false;
 }
 
 /* ---- Focusoefening ---------------------------------------------------------
@@ -3355,12 +3370,30 @@ const Train={
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
       ${this.voorstelBalk(e,i,a)}
+      ${(()=>{
+        /* Opwarmen doe je per spiergroep, niet per oefening. Bij een rijtje van
+           vier borstoefeningen warm je één keer op; komt daarna je rug aan de
+           beurt, dan weer. Dus: de knop staat alleen bij de eerste oefening van
+           een groep die nog niet aan bod is geweest, en boven de sets, want daar
+           hoort een opwarmset ook te staan. */
+        if(cardio) return "";
+        const groep=exGroepen(ex)[0]||"";
+        const eerder=new Set();
+        for(let k=0;k<i;k++){
+          const x=exById(a.entries[k].exId);
+          if(x && x.type!=="cardio") eerder.add(exGroepen(x)[0]||"");
+        }
+        if(eerder.has(groep)) return "";
+        if(e.sets.some(s=>s.t==="warmup")) return "";
+        return `<div style="padding:4px 14px 0">
+          <button class="btn sm ghost wide" type="button" onclick="Train.addSet(${i},'warmup')">
+            + Opwarmset voor ${esc(groep.toLowerCase())}</button></div>`;
+      })()}
       <div class="setgrid head${cardio?" cardio":""}"><span>Set</span><span>${kolA}</span><span>${kolB}</span>${cardio?`<span>${kolC}</span>`:""}<span></span></div>
       ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige,cardio)).join("")}
       ${i===0?`<div class="veeghint">Veeg een set opzij om hem te verwijderen.</div>`:""}
       <div class="ex-foot">
         <button class="btn sm wide" type="button" onclick="Train.addSet(${i})">+ Set</button>
-        <button class="btn sm ghost" type="button" onclick="Train.addSet(${i},'warmup')">+ Opwarm</button>
       </div>
     </div>`;
   },
@@ -3374,13 +3407,17 @@ const Train={
         ? `<input class="inp num" inputmode="decimal" value="${s.w??""}" placeholder="${vs?nf(vs.w||0):"–"}" onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Minuten">
            <input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Kilometers">`
         : `<input class="inp num" inputmode="numeric" value="${s.r??""}" placeholder="${vs?(vs.r||0):"–"}" onchange="Train.setVal(${i},${j},'r',this.value)" aria-label="Herhalingen">
-           <div class="wcel">
+           ${magBW(e.exId)
+             ? `<div class="wcel">
              <input class="inp num" inputmode="decimal" value="${s.w??""}"
                     placeholder="${s.bw?"extra":(vs?(vs.bw?"BW":nf(vs.w||0)):"–")}"
                     onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">
              <button class="bwknop ${s.bw?"on":""}" type="button" onclick="Train.togBw(${i},${j})"
                      title="Eigen lichaamsgewicht">BW</button>
-           </div>`}
+           </div>`
+             : `<input class="inp num" inputmode="decimal" value="${s.w??""}"
+                    placeholder="${vs?nf(vs.w||0):"–"}"
+                    onchange="Train.setVal(${i},${j},'w',this.value)" aria-label="Gewicht">`}`}
       ${cardio?`<input class="inp num" inputmode="numeric" value="${s.kcal??""}" placeholder="–" onchange="Train.setVal(${i},${j},'kcal',this.value)" aria-label="Calorieën">`:""}
       <button class="tick ${s.done?"on":""}" type="button" onclick="Train.toggle(${i},${j})" aria-label="Set afvinken">
         <svg viewBox="0 0 24 24"><path d="M4 12.5 9.5 18 20 6.5"/></svg></button>
@@ -3559,6 +3596,12 @@ const Train={
           <button type="button" class="${(s.rir===null||s.rir===undefined)?"on":""}"
              onclick="Train.zetRirUitMenu(${i},${j},null)">–</button>
         </div></div>`:""}
+      ${s.sec?"":`
+      <div class="switch"><div class="sw-main"><b>Eigen lichaamsgewicht</b>
+        <span>Voor dips, pull-ups en alles wat je met je eigen gewicht doet. In het
+          gewichtsveld vul je dan alleen het extra gewicht in.</span></div>
+        <button class="toggle ${s.bw?"on":""}" type="button"
+          onclick="Train.togBw(${i},${j});Sheet.close()"><i></i></button></div>`}
       <button class="btn danger wide" type="button" onclick="Train.delSet(${i},${j})">Set verwijderen</button>`);
   },
   setType(i,j,t){ DB.d.active.entries[i].sets[j].t=t; DB.save(); Sheet.close(); render(); },
