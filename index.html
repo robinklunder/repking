@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="3 nov 2026 - 09:40";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="8 nov 2026 - 10:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -3366,6 +3366,8 @@ const Train={
             const v=voorstelVoor(e.exId,a.id,laadTaak(a));
             return v?`<span class="prev-hint" style="color:var(--accent);font-weight:650">· doe ${nf(v.kg)} kg</span>`:"";
           })()}</div>
+          ${e.note?`<div style="margin-top:5px;font-size:13px;line-height:1.45;color:var(--ink-2);
+            border-left:2px solid var(--line-strong);padding-left:9px">${esc(e.note)}</div>`:""}
         </div>
         <button class="ex-more" type="button" onclick="Train.exMenu(${i})" aria-label="Opties">⋯</button>
       </div>
@@ -3384,16 +3386,19 @@ const Train={
           if(x && x.type!=="cardio") eerder.add(exGroepen(x)[0]||"");
         }
         if(eerder.has(groep)) return "";
-        if(e.sets.some(s=>s.t==="warmup")) return "";
+        // Blijft staan ook als er al een opwarmset is: bij bankdrukken doe je
+        // er eerst 20 × 20 en daarna 5 × 60, dus één knop is niet genoeg.
+        const al=e.sets.filter(s=>s.t==="warmup").length;
         return `<div style="padding:4px 14px 0">
           <button class="btn sm ghost wide" type="button" onclick="Train.addSet(${i},'warmup')">
-            + Opwarmset voor ${esc(groep.toLowerCase())}</button></div>`;
+            + Opwarmset${al?"":" voor "+esc(groep.toLowerCase())}</button></div>`;
       })()}
       <div class="setgrid head${cardio?" cardio":""}"><span>Set</span><span>${kolA}</span><span>${kolB}</span>${cardio?`<span>${kolC}</span>`:""}<span></span></div>
       ${e.sets.map((s,j)=>this.setRow(s,j,i,e,vorige,cardio)).join("")}
       ${i===0?`<div class="veeghint">Veeg een set opzij om hem te verwijderen.</div>`:""}
       <div class="ex-foot">
         <button class="btn sm wide" type="button" onclick="Train.addSet(${i})">+ Set</button>
+        <button class="btn sm ghost" type="button" onclick="Train.notitie(${i})">${e.note?"Notitie":"+ Notitie"}</button>
       </div>
     </div>`;
   },
@@ -3623,12 +3628,25 @@ const Train={
     toastActie("Set verwijderd","Ongedaan maken",terug);
   },
 
+  /* De notitie zat alleen achter het ⋯ menu en werd daar niet gevonden. Nu ook
+     een eigen knop onder de sets, en wat je schrijft staat op de kaart. */
+  notitie(i){
+    const e=DB.d.active.entries[i];
+    Sheet.open("Notitie bij "+exName(e.exId),`
+      <div class="field"><label>Wat wil je onthouden van deze oefening?</label>
+        <textarea class="ctrl" id="exNote" style="min-height:90px"
+          placeholder="bijv. laatste set pause reps · superset met skull crushers · stoel op 4">${esc(e.note||"")}</textarea></div>
+      <p class="mut">Deze notitie blijft bij de oefening staan en komt mee in je logboek.</p>
+      <button class="btn primary wide" type="button" onclick="Train.exSave(${i})">Opslaan</button>
+      ${e.note?`<button class="btn ghost wide" type="button" onclick="Train.notitieWeg(${i})">Notitie wissen</button>`:""}`);
+  },
+  notitieWeg(i){ DB.d.active.entries[i].note=""; DB.save(); Sheet.close(); render(); },
+
   exMenu(i){
     const e=DB.d.active.entries[i];
     Sheet.open(exName(e.exId),`
-      <div class="field"><label>Notitie bij deze oefening</label>
-        <input class="ctrl" id="exNote" value="${esc(e.note||"")}" placeholder="bijv. stoel op 4, langzaam zakken"></div>
-      <button class="btn primary wide" type="button" onclick="Train.exSave(${i})">Opslaan</button>
+      <button class="btn wide" type="button" onclick="Sheet.close();Train.notitie(${i})">
+        ${e.note?"Notitie bewerken":"Notitie toevoegen"}</button>
       <div class="hr"></div>
       <button class="btn primary wide" type="button" onclick="Train.bovenaan(${i})">Deze nu doen</button>
       <button class="btn wide" type="button" onclick="toonUitleg('${esc(exName(e.exId)).replace(/'/g,"\\'")}')">Hoe doe ik dit?</button>
