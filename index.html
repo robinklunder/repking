@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="14 nov 2026 - 11:45";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="14 nov 2026 - 13:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -4364,7 +4364,11 @@ const Log={
               :`<div class="tile"><div class="k">Volume</div><div class="v">${kf(st.vol)}</div><div class="u">kg</div></div>`}
         <div class="tile"><div class="k">${body?"Rondes":"Sets"}</div><div class="v">${st.sets}</div><div class="u">${body?"afgevinkt":"werksets"}</div></div>
         <div class="tile"><div class="k">Reps</div><div class="v">${st.reps}</div><div class="u">totaal</div></div>
-        <div class="tile"><div class="k">Duur</div><div class="v">${st.dur?hhmm(st.dur):"–"}</div><div class="u">&nbsp;</div></div>
+        ${b?`<button class="tile" type="button" style="text-align:inherit;font:inherit"
+              onclick="Log.duurSheet('${s.id}')">
+              <div class="k">Duur</div><div class="v" style="color:var(--accent)">${st.dur?hhmm(st.dur):"–"}</div>
+              <div class="u">aanpassen</div></button>`
+            :`<div class="tile"><div class="k">Duur</div><div class="v">${st.dur?hhmm(st.dur):"–"}</div><div class="u">&nbsp;</div></div>`}
       </div>
       ${(s.hr&&(s.hr.gem||s.hr.max))||s.kcal?`
       <div class="tiles">
@@ -4429,6 +4433,53 @@ const Log={
     set[veld]= v==="" ? null : (veld==="r" ? (parseInt(v,10)||null) : (parseFloat(v)||null));
     DB.save();
   },
+  /* ---- Duur aanpassen -----------------------------------------------------
+     Vergeet je een training af te sluiten, dan loopt de klok door tot je de
+     app de volgende dag weer opent. Zo stond er een trekdag van 19 uur in.
+
+     De app zet bij elke set die je afvinkt een tijdstempel. Daarmee weet hij
+     zelf hoe lang je bezig was: van je eerste tot je laatste set. Die knop is
+     dus geen schatting maar een aflezing — met de hand invullen kan ook, voor
+     oude trainingen waar die tijdstempels nog niet op staan.                */
+  setStempels(s){
+    const ts=[];
+    for(const e of s.entries) for(const x of e.sets) if(x.ts) ts.push(x.ts);
+    return ts.sort((a,b)=>a-b);
+  },
+  duurSheet(id){
+    const s=this.vind(id); if(!s) return;
+    const nu=sessionStats(s).dur;
+    const ts=this.setStempels(s);
+    // de eerste set kan een paar tellen ná de start liggen; we rekenen vanaf
+    // het begin van de training als dat eerder was
+    const begin = ts.length ? Math.min(ts[0], s.start||ts[0]) : null;
+    const uitSets = ts.length>=2 ? Math.max(1,Math.round((ts[ts.length-1]-begin)/60000)) : null;
+    const klok = t => new Date(t).toLocaleTimeString("nl-NL",{hour:"2-digit",minute:"2-digit"});
+    Sheet.open("Duur aanpassen",`
+      <p class="mut" style="font-size:14.5px;color:var(--ink-2)">
+        Nu genoteerd: <b style="color:var(--ink)">${nu?hhmm(nu):"geen tijd"}</b>.
+        Alleen de duur verandert — je sets, gewichten en records blijven zoals ze zijn.</p>
+      ${uitSets?`<button class="btn primary wide" type="button"
+        onclick="Log.duurZet('${id}',${uitSets})">Op je laatste set zetten · ${uitSets} min</button>
+        <p class="mut">Je begon om ${klok(begin)} en vinkte je laatste set af om ${klok(ts[ts.length-1])}.</p>`
+      :`<div class="notebox">Op deze training staan geen tijdstempels, dus de app kan de duur niet zelf aflezen. Vul hem hieronder met de hand in.</div>`}
+      <div class="field"><label>Of met de hand, in minuten</label>
+        <input class="ctrl" id="duurMin" type="number" inputmode="numeric" min="1" max="600"
+               value="${uitSets||(nu?Math.round(nu/60):"")}"></div>
+      <button class="btn wide" type="button" onclick="Log.duurZet('${id}')">Opslaan</button>`);
+  },
+  duurZet(id,minuten){
+    const s=this.vind(id); if(!s) return;
+    const m = minuten!==undefined ? minuten : parseInt(($("#duurMin")||{}).value,10);
+    if(!(m>0)) return toast("Vul een aantal minuten in");
+    if(m>600) return toast("Dat lijkt me te lang — hooguit 600 minuten");
+    // De duur is einde minus start. Staat er geen start, dan rekenen we terug
+    // vanaf het einde, zodat de datum van de training klopt blijft.
+    if(s.start) s.end = s.start + m*60000;
+    else { s.end = s.end || Date.now(); s.start = s.end - m*60000; }
+    DB.save(); Sheet.close(); render(); toast(`Duur op ${m} minuten gezet`);
+  },
+
   setMenu(id,i,j){
     const set=this.vind(id).entries[i].sets[j];
     const opt=[["work","Werkset"],["warmup","Opwarmset"],["drop","Dropset"],["fail","Tot falen"]];
