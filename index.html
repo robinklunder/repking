@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="15 nov 2026 - 19:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="15 nov 2026 - 20:15";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1290,8 +1290,23 @@ function blokNu(){
     verwacht+=(BLOK_WEKEN[w-1].zwaar?1:0)+(BLOK_WEKEN[w-1].volume?1:0);
   const gedaan=h.filter(d=>d.date>=b.start && d.date<weekStart).length;
 
+  /* Hoeveel zat er nog in op je laatste zware dag binnen dit blok? Daar hangt
+     het advies aan om het schema op te schuiven: vier in de tank betekent dat
+     deze week te licht voor je is. */
+  let laatsteRir=null;
+  for(let i=h.length-1;i>=0;i--){
+    if(h[i].date<b.start) break;
+    const s=DB.d.sessions.find(x=>x.id===h[i].sessionId);
+    if(s && taakVan(s,b.exId)==="volume") continue;
+    const werk=h[i].sets.filter(x=>!x.sec && x.t!=="warmup" && x.w>0);
+    if(!werk.length) continue;
+    const kg=Math.max(...werk.map(x=>x.w));
+    const rirs=werk.filter(x=>x.w===kg).map(x=>x.rir).filter(v=>v!==null && v!==undefined);
+    if(rirs.length){ laatsteRir=rirs.reduce((a,c)=>a+c,0)/rirs.length; break; }
+  }
+
   return {blok:b, exId:b.exId, ex, week, weekStart, plan, taak,
-          dezeWeek:dezeWeek.length, verwacht, gedaan,
+          dezeWeek:dezeWeek.length, verwacht, gedaan, bij:b.bij||0, laatsteRir,
           testDatum:b.test, plafond:b.plafond||BLOK_PLAFOND, spil:blokSpil(b),
           dagenTotTest: b.test ? -daysAgo(b.test) : null};
 }
@@ -1301,7 +1316,13 @@ function blokNu(){
 function blokTaak(bn, taak){
   const p=bn && bn.plan && bn.plan[taak];
   if(!p) return null;
-  if(p.kg!=null) return {sets:p.sets, reps:p.reps, kg:p.kg, uitleg:""};
+  /* Het schema kan hoger of lager staan dan toen je het blok begon. Die
+     verschuiving geldt alleen voor de vaste gewichten: week 7 en de taper
+     rekenen we uit wat je in de spilweek wérkelijk tilde, en daar zit de
+     verschuiving dus al in. Er nog eens bij optellen zou dubbelop zijn. */
+  const bij=bn.bij||0;
+  if(p.kg!=null) return {sets:p.sets, reps:p.reps, kg:Math.max(20,p.kg+bij),
+                         uitleg: bij ? `Je schema staat ${bij>0?"+":""}${nf(bij)} kg verzet.` : ""};
   const g=blokGerekend(bn.blok, bn.plan);
   return {sets:p.sets, reps:p.reps, kg:g.kg, uitleg:g.uitleg};
 }
@@ -6311,7 +6332,7 @@ const Blok={
       const start=addDays(b.start,k*7);
       const toon=(taak)=>{
         if(!p[taak]) return "—";
-        if(p[taak].kg!=null) return `${p[taak].sets}× ${p[taak].reps} × ${nf(p[taak].kg)}`;
+        if(p[taak].kg!=null) return `${p[taak].sets}× ${p[taak].reps} × ${nf(Math.max(20,p[taak].kg+(b.bij||0)))}`;
         const g=blokGerekend(b,p);
         return `${p[taak].sets}× ${p[taak].reps} × ${g.kg==null?"?":nf(g.kg)}`;
       };
@@ -6357,6 +6378,32 @@ const Blok={
       <div class="sec-label">Het schema · zwaar / volume</div>
       <div class="list">${BLOK_WEKEN.map((p,k)=>rij(k)).join("")}</div>
 
+      <div class="sec-label">Hoogte van het schema</div>
+      <div class="card"><div style="padding:13px 14px 14px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+          <b class="num" style="font-size:17px;color:${b.bij?"var(--accent)":"var(--ink)"}">
+            ${b.bij?(b.bij>0?"+":"")+nf(b.bij)+" kg":"op schema"}</b>
+          <span style="flex:1"></span>
+          <button class="btn sm" type="button" onclick="Blok.verzet(-2.5)">− 2,5</button>
+          <button class="btn sm" type="button" onclick="Blok.verzet(2.5)">+ 2,5</button>
+        </div>
+        <p class="mut" style="font-size:12.5px">Gaat het makkelijker dan gepland, zet het schema dan
+          omhoog. Dit geldt voor de vaste weken; week 7 en de testkilo worden toch al uit je
+          spilweek gerekend.</p>
+        ${bn && !bn.wacht && bn.laatsteRir!==null ? (
+          bn.laatsteRir>=3.5
+            ? `<div class="notebox" style="margin-top:10px">Je laatste zware dag ging met
+                 ${nf(Math.round(bn.laatsteRir*10)/10)} in de tank. Dat is ruim — <b>2,5 kg omhoog</b>
+                 past bij wat je aankunt.</div>`
+            : bn.laatsteRir<=0
+            ? `<div class="notebox" style="margin-top:10px">Je laatste zware dag ging tot het gaatje
+                 (${nf(Math.round(bn.laatsteRir*10)/10)} in de tank). Dit schema is zwaar genoeg;
+                 overweeg <b>Week herhalen</b> in plaats van omhoog.</div>`
+            : `<p class="mut" style="margin-top:8px;font-size:12.5px">Je laatste zware dag ging met
+                 ${nf(Math.round(bn.laatsteRir*10)/10)} in de tank — dat is waar het hoort.</p>`
+        ) : ""}
+      </div></div>
+
       <div class="sec-label">Plafond</div>
       <div class="list"><div class="li"><div class="li-main">
         <b>Geen losse herhaling boven ${nf(b.plafond||BLOK_PLAFOND)} kg</b>
@@ -6372,13 +6419,25 @@ const Blok={
         gooit alleen het schema weg; je gelogde trainingen blijven onaangeroerd.</p>`;
   },
 
+  /* Het schema omhoog of omlaag. Begrensd op een halve trede naar beneden en
+     drie naar boven: wie meer dan 7,5 kg boven zijn eigen schema zit, heeft
+     geen verschoven schema maar een verkeerd schema — dan is stoppen en
+     opnieuw beginnen eerlijker dan doorschuiven. */
+  verzet(kg){
+    const b=DB.d.blok; if(!b) return;
+    const nieuw=Math.round(((b.bij||0)+kg)*2)/2;
+    if(nieuw<-5)  return toast("Lager dan 5 kg onder schema heeft geen zin — herhaal liever een week");
+    if(nieuw>7.5) return toast("Meer dan 7,5 kg erboven: begin liever een nieuw blok");
+    b.bij=nieuw; DB.save(); render();
+    toast(nieuw===0 ? "Weer op schema" : `Schema ${nieuw>0?"+":""}${nf(nieuw)} kg`);
+  },
   start(){
     const f=focusOefening(); if(!f) return toast("Nog geen focusoefening");
     // De komende maandag, of vandaag als het al maandag is.
     const m=dStr(maandagVan(new Date()));
     const start = m===today() ? m : addDays(m,7);
     // De zaterdag van week acht: maandag + zeven weken + vijf dagen.
-    DB.d.blok={start, exId:f.id, test:addDays(start,7*7+5), plafond:BLOK_PLAFOND};
+    DB.d.blok={start, exId:f.id, test:addDays(start,7*7+5), plafond:BLOK_PLAFOND, bij:0};
     DB.save(); render();
     toast("Blok staat klaar");
   },
