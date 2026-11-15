@@ -615,7 +615,7 @@ const CATS=[["push","Duwen"],["pull","Trekken"],["legs","Benen"],["core","Core"]
 
 /* ---------- 3. Opslag --------------------------------------------------- */
 const KEY="ijzerlog.v1";
-const VERSIE="14 nov 2026 - 13:20";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
+const VERSIE="15 nov 2026 - 19:05";   // zichtbaar onder Meer -> Over, om te zien welke versie je telefoon draait
 let storageOK=true;
 const DB={
   d:null,
@@ -1181,17 +1181,17 @@ function taakVan(sessie, exId){
    is, is geen plan maar hoop — en precies op dat punt zat er eerst 107,5 in
    dit schema, wat een max van 118 veronderstelde terwijl de stand 110 was. */
 const BLOK_WEKEN=[
-  {zwaar:{sets:4,reps:4,kg:92.5}, volume:{sets:4,reps:7,kg:77.5}},
-  {zwaar:{sets:4,reps:4,kg:95},   volume:{sets:4,reps:7,kg:80}},
-  {zwaar:{sets:4,reps:5,kg:95},   volume:{sets:4,reps:8,kg:80}},
-  {zwaar:{sets:4,reps:4,kg:97.5}, volume:{sets:4,reps:7,kg:82.5}},
-  {zwaar:{sets:4,reps:5,kg:97.5}, volume:{sets:4,reps:8,kg:82.5}, spil:true},
-  {zwaar:{sets:3,reps:4,kg:85},   volume:{sets:3,reps:6,kg:72.5}, licht:true},
-  {zwaar:{sets:4,reps:3,kg:null}, volume:{sets:3,reps:6,kg:85},   reken:true},
-  {zwaar:{sets:3,reps:3,kg:null}, volume:null,                    taper:true}
+  {zwaar:{sets:4,reps:4,kg:95},    volume:{sets:4,reps:7,kg:80}},
+  {zwaar:{sets:4,reps:4,kg:97.5},  volume:{sets:4,reps:7,kg:82.5}},
+  {zwaar:{sets:4,reps:5,kg:97.5},  volume:{sets:4,reps:8,kg:80}},
+  {zwaar:{sets:4,reps:4,kg:100},   volume:{sets:4,reps:7,kg:85}},
+  {zwaar:{sets:4,reps:5,kg:100},   volume:{sets:4,reps:8,kg:82.5}, spil:true},
+  {zwaar:{sets:3,reps:4,kg:87.5},  volume:{sets:3,reps:6,kg:75},   licht:true},
+  {zwaar:{sets:4,reps:3,kg:null},  volume:{sets:3,reps:6,kg:87.5}, reken:true},
+  {zwaar:{sets:3,reps:3,kg:null},  volume:null,                    taper:true}
 ];
 const BLOK_SPIL=5;        // de week waaruit week 7, de taper en de testkilo volgen
-const BLOK_PLAFOND=100;   // geen losse herhaling hierboven zolang het blok loopt
+const BLOK_PLAFOND=105;   // geen losse herhaling hierboven zolang het blok loopt
 
 /* De zwaarste werkset uit de spilweek, met de RIR die je erbij invulde.
    Volumedagen laten we buiten beschouwing: die zeggen niets over je zware
@@ -1366,6 +1366,10 @@ function mijlpalen(extra){
   /* Eerste doorloop: wat is het zwaarste dat je ooit tilde? Dat getal is de
      maat voor "zwaar" in de tweede doorloop, dus het moet eerst klaar zijn. */
   let topKg=0, topDatum="", werkDatum="", werkKg=0;
+  // Elke werkset met zijn datum, zodat we straks per trede kunnen opzoeken
+  // wannéér je hem haalde. Daar vroeg hij om: zo zie je hoeveel tijd er
+  // tussen twee records zit in plaats van alleen dát je ze hebt.
+  const alleSets=[];
   const focusVan=s=>{
     for(const e of s.entries||[]){
       if(e.exId!==f.id) continue;
@@ -1376,8 +1380,12 @@ function mijlpalen(extra){
   };
   for(const s of sessies){
     const w=focusVan(s); if(!w) continue;
-    for(const st of w) if((st.w||0)>topKg){ topKg=st.w; topDatum=s.date; }
+    for(const st of w){
+      if((st.w||0)>topKg){ topKg=st.w; topDatum=s.date; }
+      if(st.w>0) alleSets.push({date:s.date, w:st.w});
+    }
   }
+  alleSets.sort((a,b)=>a.date.localeCompare(b.date));
   const doelKg = (ex.doel && ex.doel.max1rm>0) ? ex.doel.max1rm : 0;
   // Zestien treden terug, zodat de ladder dezelfde afstand overspant als
   // voorheen (bij hem 100 tot 140 kg) maar in kleinere stappen.
@@ -1473,7 +1481,46 @@ function mijlpalen(extra){
   const treden=[];
   if(doelKg) for(let k=eersteTrede;k<=doelKg+0.001;k+=stap) treden.push(Math.round(k*10)/10);
 
-  return {focus:f, doelKg, treden, topKg, topDatum, lijst,
+  /* Wanneer haalde je elke trede? De eerste dag waarop je dat gewicht tilde.
+     Sloeg je er een over — hij ging van 100 naar 105 — dan krijgen 102,5 en
+     105 dezelfde datum. Dat is eerlijk: die middelste trede is op die dag
+     meegekomen, niet apart behaald.
+
+     Voor het gemiddelde tellen we alleen de dágen, niet de treden. Anders
+     zou zo'n overgeslagen trede als "0 dagen" meetellen en het gemiddelde
+     halveren zonder dat er iets gebeurd is.                               */
+  const tredeDatum={};
+  for(const t of treden){
+    const hit=alleSets.find(x=>x.w>=t-0.001);
+    if(hit) tredeDatum[t]=hit.date;
+  }
+  const datums=[...new Set(Object.values(tredeDatum))].sort();
+  let gemDagen=null;
+  if(datums.length>=2){
+    let som=0;
+    for(let i=1;i<datums.length;i++) som+=Math.round((dParse(datums[i])-dParse(datums[i-1]))/864e5);
+    gemDagen=Math.round(som/(datums.length-1));
+  }
+  /* Hoe snel gaat je record écht omhoog? Dat is iets anders dan de tijd tussen
+     twee recorddagen: pak je er twee treden tegelijk, dan ging je die dag
+     5 kg vooruit en niet 2,5. Daarom delen we de hele afstand door het aantal
+     tréden, niet door het aantal dagen waarop je iets haalde. Dit is het
+     getal waar je iets aan hebt als je wilt weten wanneer je 140 haalt.     */
+  const gehaaldeTreden=treden.filter(t=>tredeDatum[t]);
+  let perTrede=null, dagenTotDoel=null;
+  if(gehaaldeTreden.length>=2){
+    const eerst=tredeDatum[gehaaldeTreden[0]], laatst=tredeDatum[gehaaldeTreden[gehaaldeTreden.length-1]];
+    const dagen=Math.round((dParse(laatst)-dParse(eerst))/864e5);
+    const stappen=gehaaldeTreden.length-1;
+    if(dagen>0) {
+      perTrede=Math.round(dagen/stappen);
+      const teGaan=treden.filter(t=>t>topKg).length;
+      if(teGaan) dagenTotDoel=perTrede*teGaan;
+    }
+  }
+
+  return {focus:f, doelKg, treden, topKg, topDatum, lijst, tredeDatum, gemDagen,
+          tredeDatums:datums, perTrede, dagenTotDoel, stap,
           behaald:lijst.filter(m=>m.behaald), open:lijst.filter(m=>!m.behaald)};
 }
 
@@ -4632,14 +4679,32 @@ const Prog={
         <div style="padding:8px 14px 13px"><p class="mut" style="font-size:12.5px">
           ${esc(m.focus.ex.name)} · je zwaarste gelogde set zet de markering.
           ${volgende?`Volgende trede: <b>${nf(volgende)} kg</b>, nog ${nf(Math.round((volgende-m.topKg)*10)/10)} kg.`
-                    :`Je hebt de hele ladder gehad.`}</p></div>
+                    :`Je hebt de hele ladder gehad.`}
+          ${m.perTrede?`<br>Je komt er gemiddeld <b>${m.perTrede} dagen</b> over doen per trede van ${nf(m.stap)} kg.
+            ${m.dagenTotDoel?`In dat tempo sta je over ${Math.round(m.dagenTotDoel/30.4)} maanden op ${nf(m.doelKg)} kg.`:""}
+            <br><span style="opacity:.75">Je pakte je treden op ${m.tredeDatums.length} verschillende dagen, gemiddeld ${m.gemDagen} dagen uit elkaar — soms twee tegelijk.</span>`:""}</p></div>
       </div>`:`<div class="notebox">Vul bij ${esc(m.focus.ex.name)} een doelgewicht in
         (Meer → Oefeningen) en hier verschijnt je ladder ernaartoe.</div>`}
 
       ${totaal?`<div class="sec-label">Behaald</div><div class="list">
-        ${m.treden.filter(t=>m.topKg>=t).map(t=>`<div class="li">
-          <div class="li-main"><b>${nf(t)} kg</b><span>een trede op weg naar ${nf(m.doelKg)} kg</span></div>
-          <span class="chip acc">✓</span></div>`).join("")}
+        ${(()=>{
+          // nieuwste bovenaan: je laatste record is waar je naar kijkt
+          const gehaald=m.treden.filter(t=>m.topKg>=t).sort((a,b)=>b-a);
+          return gehaald.map(t=>{
+            const d=m.tredeDatum[t];
+            // Sloeg je treden over, dan deelt een stel dezelfde dag. De
+            // tussentijd hoort dan maar één keer te staan, bij de hoogste —
+            // anders lijkt het alsof je hem twee keer wachtte.
+            const hoogsteVanDieDag = d && !gehaald.some(x=>x>t && m.tredeDatum[x]===d);
+            const i=d?m.tredeDatums.indexOf(d):-1;
+            const vorig=i>0?m.tredeDatums[i-1]:null;
+            const dgn=(vorig&&hoogsteVanDieDag)?Math.round((dParse(d)-dParse(vorig))/864e5):null;
+            return `<div class="li">
+              <div class="li-main"><b>${nf(t)} kg</b>
+                <span>${d?dLong(d):"datum onbekend"}${dgn?` · ${dgn} dagen na je vorige trede`:""}</span></div>
+              <span class="chip acc">✓</span></div>`;
+          }).join("");
+        })()}
         ${m.behaald.map(x=>`<div class="li">
           <div class="li-main"><b>${esc(x.naam)}</b><span>${x.wat}${x.datum?` · ${dLong(x.datum)}`:""}</span></div>
           <span class="chip acc">✓</span></div>`).join("")}
